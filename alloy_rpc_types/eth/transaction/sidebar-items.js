@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["ReceiptEnvelope"],"mod":["common","error","optimism","receipt","request","signature"],"struct":["AccessList","AccessListItem","AccessListWithGasUsed","AnyReceiptEnvelope","BlobTransactionSidecar","Receipt","ReceiptWithBloom","Transaction"]};
