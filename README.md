@@ -3,7 +3,7 @@
 Alloy connects applications to blockchains.
 
 Alloy is a rewrite of [`ethers-rs`] from the ground up, with exciting new
-features, high performance, and excellent [docs](https://alloy-rs.github.io/alloy/).
+features, high performance, and excellent [docs](https://docs.rs/alloy).
 
 We also have a [book](https://alloy.rs/) on all things Alloy and many [examples](https://github.com/alloy-rs/examples) to help you get started.
 
@@ -26,7 +26,7 @@ cargo add alloy --features full
 Alternatively, you can add the following to your `Cargo.toml` file:
 
 ```toml
-alloy = { version = "0.1", features = ["full"] }
+alloy = { version = "0.2", features = ["full"] }
 ```
 
 For a more fine-grained control over the features you wish to include, you can add the individual crates to your `Cargo.toml` file, or use the `alloy` crate with the features you need.
@@ -44,6 +44,7 @@ This repository contains the following crates:
 - [`alloy-genesis`] - Ethereum genesis file definitions
 - [`alloy-json-rpc`] - Core data types for JSON-RPC 2.0 clients
 - [`alloy-network`] - Network abstraction for RPC types
+  - [`alloy-network-primitives`] - Primitive types for the network abstraction
 - [`alloy-node-bindings`] - Ethereum execution-layer client bindings
 - [`alloy-provider`] - Interface with an Ethereum blockchain
 - [`alloy-pubsub`] - Ethereum JSON-RPC [publish-subscribe] tower service and type definitions
@@ -77,6 +78,7 @@ This repository contains the following crates:
 [`alloy-genesis`]: https://github.com/alloy-rs/alloy/tree/main/crates/genesis
 [`alloy-json-rpc`]: https://github.com/alloy-rs/alloy/tree/main/crates/json-rpc
 [`alloy-network`]: https://github.com/alloy-rs/alloy/tree/main/crates/network
+[`alloy-network-primitives`]: https://github.com/alloy-rs/alloy/tree/main/crates/network-primitives
 [`alloy-node-bindings`]: https://github.com/alloy-rs/alloy/tree/main/crates/node-bindings
 [`alloy-provider`]: https://github.com/alloy-rs/alloy/tree/main/crates/provider
 [`alloy-pubsub`]: https://github.com/alloy-rs/alloy/tree/main/crates/pubsub

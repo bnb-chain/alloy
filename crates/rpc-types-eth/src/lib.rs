@@ -14,6 +14,10 @@ pub use account::*;
 mod block;
 pub use block::*;
 
+pub use alloy_network_primitives::{
+    BlockTransactionHashes, BlockTransactions, BlockTransactionsKind,
+};
+
 mod call;
 pub use call::{Bundle, EthCallResponse, StateContext, TransactionIndex};
 
@@ -49,3 +53,8 @@ pub use work::Work;
 
 mod sidecars;
 pub use sidecars::*;
+
+/// This module provides implementations for EIP-4337.
+pub mod eip4337;
+
+pub mod simulate;

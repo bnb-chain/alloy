@@ -7,15 +7,16 @@ use crate::{
 };
 use alloy_eips::eip2718::Encodable2718;
 use alloy_json_rpc::{RpcError, RpcParam, RpcReturn};
-use alloy_network::{Ethereum, Network, ReceiptResponse as _};
+use alloy_network::{Ethereum, Network};
+use alloy_network_primitives::{BlockTransactionsKind, ReceiptResponse};
 use alloy_primitives::{
     hex, Address, BlockHash, BlockNumber, Bytes, StorageKey, StorageValue, TxHash, B256, U128,
     U256, U64,
 };
 use alloy_rpc_client::{ClientRef, PollerBuilder, RpcCall, WeakClient};
 use alloy_rpc_types_eth::{
-    AccessListWithGasUsed, Block, BlockId, BlockNumberOrTag, BlockTransactionsKind,
-    EIP1186AccountProofResponse, FeeHistory, Filter, FilterChanges, Log, SyncStatus,
+    AccessListResult, Block, BlockId, BlockNumberOrTag, EIP1186AccountProofResponse, FeeHistory,
+    Filter, FilterChanges, Log, SyncStatus,
 };
 use alloy_transport::{BoxTransport, Transport, TransportErrorKind, TransportResult};
 use serde_json::value::RawValue;
@@ -147,7 +148,10 @@ pub trait Provider<T: Transport + Clone = BoxTransport, N: Network = Ethereum>:
     /// Not all client implementations support state overrides.
     #[doc(alias = "eth_call")]
     #[doc(alias = "call_with_overrides")]
-    fn call<'req>(&self, tx: &'req N::TransactionRequest) -> EthCall<'req, 'static, T, N, Bytes> {
+    fn call<'req, 'state>(
+        &self,
+        tx: &'req N::TransactionRequest,
+    ) -> EthCall<'req, 'state, T, N, Bytes> {
         EthCall::new(self.weak_client(), tx)
     }
 
@@ -162,7 +166,7 @@ pub trait Provider<T: Transport + Clone = BoxTransport, N: Network = Ethereum>:
     fn create_access_list<'a>(
         &self,
         request: &'a N::TransactionRequest,
-    ) -> RpcWithBlock<T, &'a N::TransactionRequest, AccessListWithGasUsed> {
+    ) -> RpcWithBlock<T, &'a N::TransactionRequest, AccessListResult> {
         RpcWithBlock::new(self.weak_client(), "eth_createAccessList", request)
     }
 
@@ -241,10 +245,7 @@ pub trait Provider<T: Transport + Clone = BoxTransport, N: Network = Ethereum>:
 
     /// Retrieves account information ([Account](alloy_consensus::Account)) for the given [Address]
     /// at the particular [BlockId].
-    async fn get_account(
-        &self,
-        address: Address,
-    ) -> RpcWithBlock<T, Address, alloy_consensus::Account> {
+    fn get_account(&self, address: Address) -> RpcWithBlock<T, Address, alloy_consensus::Account> {
         RpcWithBlock::new(self.weak_client(), "eth_getAccount", address)
     }
 

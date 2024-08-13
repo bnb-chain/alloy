@@ -1,6 +1,6 @@
 [package]
-name = "alloy-json-rpc"
-description = "Core types for JSON-RPC2.0 clients"
+name = "alloy-network-primitives"
+description = "Primitive types for Alloy network abstraction"
 
 version.workspace = true
 edition.workspace = true
@@ -19,9 +19,10 @@ rustdoc-args = ["--cfg", "docsrs"]
 workspace = true
 
 [dependencies]
-alloy-primitives = { workspace = true, features = ["std", "serde"] }
+alloy-primitives.workspace = true
+alloy-serde.workspace = true
+
 serde.workspace = true
-serde_json = { workspace = true, features = ["std", "raw_value"] }
-thiserror.workspace = true
-tracing.workspace = true
-alloy-sol-types.workspace = true
+
+[dev-dependencies]
+rand.workspace = true

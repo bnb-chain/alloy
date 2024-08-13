@@ -9,6 +9,37 @@ use alloy_rlp::{
 };
 use core::hash::{Hash, Hasher};
 
+/// Represents the outcome of an attempt to recover the authority from an authorization.
+/// It can either be valid (containing an [`Address`]) or invalid (indicating recovery failure).
+#[derive(Debug, Clone, Hash, Eq, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub enum RecoveredAuthority {
+    /// Indicates a successfully recovered authority address.
+    Valid(Address),
+    /// Indicates a failed recovery attempt where no valid address could be recovered.
+    Invalid,
+}
+
+impl RecoveredAuthority {
+    /// Returns an optional address if valid.
+    pub const fn address(&self) -> Option<Address> {
+        match *self {
+            Self::Valid(address) => Some(address),
+            Self::Invalid => None,
+        }
+    }
+
+    /// Returns true if the authority is valid.
+    pub const fn is_valid(&self) -> bool {
+        matches!(self, Self::Valid(_))
+    }
+
+    /// Returns true if the authority is invalid.
+    pub const fn is_invalid(&self) -> bool {
+        matches!(self, Self::Invalid)
+    }
+}
+
 /// An unsigned EIP-7702 authorization.
 #[derive(Debug, Clone, Hash, RlpEncodable, RlpDecodable, Eq, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -158,11 +189,12 @@ impl SignedAuthorization {
 
     /// Recover the authority and transform the signed authorization into a
     /// [`RecoveredAuthorization`].
-    pub fn try_into_recovered(
-        self,
-    ) -> Result<RecoveredAuthorization, alloy_primitives::SignatureError> {
-        let authority = self.recover_authority()?;
-        Ok(RecoveredAuthorization { inner: self.inner, authority })
+    pub fn into_recovered(self) -> RecoveredAuthorization {
+        let authority_result = self.recover_authority();
+        let authority =
+            authority_result.map_or(RecoveredAuthority::Invalid, RecoveredAuthority::Valid);
+
+        RecoveredAuthorization { inner: self.inner, authority }
     }
 }
 
@@ -177,10 +209,15 @@ impl Deref for SignedAuthorization {
 #[cfg(all(any(test, feature = "arbitrary"), feature = "k256"))]
 impl<'a> arbitrary::Arbitrary<'a> for SignedAuthorization {
     fn arbitrary(u: &mut arbitrary::Unstructured<'a>) -> arbitrary::Result<Self> {
-        use k256::ecdsa::{signature::hazmat::PrehashSigner, SigningKey};
-        let key_bytes = u.arbitrary::<[u8; 32]>()?;
-        let signing_key = SigningKey::from_bytes(&key_bytes.into())
-            .map_err(|_| arbitrary::Error::IncorrectFormat)?;
+        use k256::{
+            ecdsa::{signature::hazmat::PrehashSigner, SigningKey},
+            NonZeroScalar,
+        };
+        use rand::{rngs::StdRng, SeedableRng};
+
+        let rng_seed = u.arbitrary::<[u8; 32]>()?;
+        let mut rand_gen = StdRng::from_seed(rng_seed);
+        let signing_key: SigningKey = NonZeroScalar::random(&mut rand_gen).into();
 
         let inner = u.arbitrary::<Authorization>()?;
         let signature_hash = inner.signature_hash();
@@ -200,35 +237,41 @@ impl<'a> arbitrary::Arbitrary<'a> for SignedAuthorization {
 pub struct RecoveredAuthorization {
     #[cfg_attr(feature = "serde", serde(flatten))]
     inner: Authorization,
-    authority: Address,
+    /// The result of the authority recovery process, which can either be a valid address or
+    /// indicate a failure.
+    authority: RecoveredAuthority,
 }
 
 impl RecoveredAuthorization {
     /// Instantiate without performing recovery. This should be used carefully.
-    pub const fn new_unchecked(inner: Authorization, authority: Address) -> Self {
+    pub const fn new_unchecked(inner: Authorization, authority: RecoveredAuthority) -> Self {
         Self { inner, authority }
     }
 
-    /// Get the `authority` for the authorization.
-    pub const fn authority(&self) -> Address {
-        self.authority
+    /// Returns an optional address based on the current state of the authority.
+    pub const fn authority(&self) -> Option<Address> {
+        self.authority.address()
     }
 
     /// Splits the authorization into parts.
-    pub const fn into_parts(self) -> (Authorization, Address) {
+    pub const fn into_parts(self) -> (Authorization, RecoveredAuthority) {
         (self.inner, self.authority)
     }
 }
 
 #[cfg(feature = "k256")]
-impl TryFrom<SignedAuthorization> for RecoveredAuthorization {
-    type Error = alloy_primitives::SignatureError;
-
-    fn try_from(value: SignedAuthorization) -> Result<Self, Self::Error> {
-        value.try_into_recovered()
+impl From<SignedAuthorization> for RecoveredAuthority {
+    fn from(value: SignedAuthorization) -> Self {
+        value.into_recovered().authority
     }
 }
 
+#[cfg(feature = "k256")]
+impl From<SignedAuthorization> for RecoveredAuthorization {
+    fn from(value: SignedAuthorization) -> Self {
+        value.into_recovered()
+    }
+}
 impl Deref for RecoveredAuthorization {
     type Target = Authorization;
 
@@ -307,7 +350,6 @@ impl Deref for OptionalNonce {
 mod tests {
     use super::*;
     use alloy_primitives::{hex, Signature};
-    use arbitrary::Arbitrary;
     use core::str::FromStr;
 
     fn test_encode_decode_roundtrip(auth: Authorization) {
@@ -367,10 +409,15 @@ mod tests {
         assert_eq!(decoded, auth);
     }
 
-    #[cfg(feature = "k256")]
+    #[cfg(all(feature = "arbitrary", feature = "k256"))]
     #[test]
     fn test_arbitrary_auth() {
+        use arbitrary::Arbitrary;
         let mut unstructured = arbitrary::Unstructured::new(b"unstructured auth");
+        // try this multiple times
+        let _auth = SignedAuthorization::arbitrary(&mut unstructured).unwrap();
+        let _auth = SignedAuthorization::arbitrary(&mut unstructured).unwrap();
+        let _auth = SignedAuthorization::arbitrary(&mut unstructured).unwrap();
         let _auth = SignedAuthorization::arbitrary(&mut unstructured).unwrap();
     }
 }
