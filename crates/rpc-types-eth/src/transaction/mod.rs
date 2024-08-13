@@ -14,8 +14,6 @@ pub use alloy_consensus::BlobTransactionSidecar;
 pub use alloy_eips::{
     eip2930::{AccessList, AccessListItem, AccessListResult},
     eip7702::Authorization,
-},
-    eip7702::Authorization,
 };
 
 mod common;
