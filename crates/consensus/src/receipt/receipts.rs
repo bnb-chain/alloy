@@ -1,10 +1,8 @@
 use crate::receipt::{Eip658Value, TxReceipt};
+use alloc::vec::Vec;
 use alloy_primitives::{Bloom, Log};
 use alloy_rlp::{length_of_length, BufMut, Decodable, Encodable};
 use core::borrow::Borrow;
-
-#[cfg(not(feature = "std"))]
-use alloc::vec::Vec;
 
 /// Receipt containing result of transaction execution.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -107,7 +105,7 @@ impl<T> From<ReceiptWithBloom<T>> for Receipt<T> {
 /// This convenience type allows us to lazily calculate the bloom filter for a
 /// receipt, similar to [`Sealed`].
 ///
-/// [`Sealed`]: crate::sealed::Sealed
+/// [`Sealed`]: crate::Sealed
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "serde", serde(rename_all = "camelCase"))]

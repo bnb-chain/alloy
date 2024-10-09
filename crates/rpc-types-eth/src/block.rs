@@ -1,10 +1,13 @@
 //! Block RPC types.
 
 use crate::{ConversionError, Transaction, Withdrawal};
+use alloc::collections::BTreeMap;
+use alloy_network_primitives::{
+    BlockResponse, BlockTransactions, HeaderResponse, TransactionResponse,
+};
 use alloy_primitives::{Address, BlockHash, Bloom, Bytes, B256, B64, U256};
-use alloy_serde::OtherFields;
-use serde::{ser::Error, Deserialize, Serialize, Serializer};
-use std::{collections::BTreeMap, ops::Deref};
+
+use alloc::vec::Vec;
 
 pub use alloy_eips::{
     calc_blob_gasprice, calc_excess_blob_gas, BlockHashOrNumber, BlockId, BlockNumHash,
@@ -12,51 +15,53 @@ pub use alloy_eips::{
 };
 
 /// Block representation
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Block<T = Transaction> {
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "camelCase"))]
+pub struct Block<T = Transaction, H = Header> {
     /// Header of the block.
-    #[serde(flatten)]
-    pub header: Header,
+    #[cfg_attr(feature = "serde", serde(flatten))]
+    pub header: H,
     /// Uncles' hashes.
-    #[serde(default)]
+    #[cfg_attr(feature = "serde", serde(default))]
     pub uncles: Vec<B256>,
     /// Block Transactions. In the case of an uncle block, this field is not included in RPC
     /// responses, and when deserialized, it will be set to [BlockTransactions::Uncle].
-    #[serde(
-        default = "BlockTransactions::uncle",
-        skip_serializing_if = "BlockTransactions::is_uncle"
+    #[cfg_attr(
+        feature = "serde",
+        serde(
+            default = "BlockTransactions::uncle",
+            skip_serializing_if = "BlockTransactions::is_uncle"
+        )
     )]
     pub transactions: BlockTransactions<T>,
     /// Integer the size of this block in bytes.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "serde", serde(default, skip_serializing_if = "Option::is_none"))]
     pub size: Option<U256>,
     /// Withdrawals in the block.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "serde", serde(default, skip_serializing_if = "Option::is_none"))]
     pub withdrawals: Option<Vec<Withdrawal>>,
-    /// Support for arbitrary additional fields.
-    #[serde(flatten)]
-    pub other: OtherFields,
 }
 
-impl Block {
+impl<T: TransactionResponse, H> Block<T, H> {
     /// Converts a block with Tx hashes into a full block.
-    pub fn into_full_block(self, txs: Vec<Transaction>) -> Self {
+    pub fn into_full_block(self, txs: Vec<T>) -> Self {
         Self { transactions: txs.into(), ..self }
     }
 }
 
 /// Block header representation.
 #[cfg_attr(any(test, feature = "arbitrary"), derive(arbitrary::Arbitrary))]
-#[derive(Clone, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "camelCase"))]
 pub struct Header {
     /// Hash of the block
-    pub hash: Option<BlockHash>,
+    pub hash: BlockHash,
     /// Hash of the parent
     pub parent_hash: B256,
     /// Hash of the uncles
-    #[serde(rename = "sha3Uncles")]
+    #[cfg_attr(feature = "serde", serde(rename = "sha3Uncles"))]
     pub uncles_hash: B256,
     /// Alias of `author`
     pub miner: Address,
@@ -71,19 +76,19 @@ pub struct Header {
     /// Difficulty
     pub difficulty: U256,
     /// Block number
-    #[serde(default, with = "alloy_serde::quantity::opt")]
-    pub number: Option<u64>,
+    #[cfg_attr(feature = "serde", serde(with = "alloy_serde::quantity"))]
+    pub number: u64,
     /// Gas Limit
-    #[serde(default, with = "alloy_serde::quantity")]
+    #[cfg_attr(feature = "serde", serde(default, with = "alloy_serde::quantity"))]
     pub gas_limit: u128,
     /// Gas Used
-    #[serde(default, with = "alloy_serde::quantity")]
+    #[cfg_attr(feature = "serde", serde(default, with = "alloy_serde::quantity"))]
     pub gas_used: u128,
     /// Timestamp
-    #[serde(default, with = "alloy_serde::quantity")]
+    #[cfg_attr(feature = "serde", serde(default, with = "alloy_serde::quantity"))]
     pub timestamp: u64,
     /// Total difficulty
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "serde", serde(default, skip_serializing_if = "Option::is_none"))]
     pub total_difficulty: Option<U256>,
     /// Extra data
     pub extra_data: Bytes,
@@ -98,28 +103,49 @@ pub struct Header {
     ///
     /// See also <https://eips.ethereum.org/EIPS/eip-4399>
     /// And <https://github.com/ethereum/execution-apis/issues/328>
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "serde", serde(default, skip_serializing_if = "Option::is_none"))]
     pub mix_hash: Option<B256>,
     /// Nonce
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "serde", serde(default, skip_serializing_if = "Option::is_none"))]
     pub nonce: Option<B64>,
     /// Base fee per unit of gas (if past London)
-    #[serde(default, skip_serializing_if = "Option::is_none", with = "alloy_serde::quantity::opt")]
+    #[cfg_attr(
+        feature = "serde",
+        serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            with = "alloy_serde::quantity::opt"
+        )
+    )]
     pub base_fee_per_gas: Option<u128>,
     /// Withdrawals root hash added by EIP-4895 and is ignored in legacy headers.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "serde", serde(default, skip_serializing_if = "Option::is_none"))]
     pub withdrawals_root: Option<B256>,
     /// Blob gas used
-    #[serde(default, skip_serializing_if = "Option::is_none", with = "alloy_serde::quantity::opt")]
+    #[cfg_attr(
+        feature = "serde",
+        serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            with = "alloy_serde::quantity::opt"
+        )
+    )]
     pub blob_gas_used: Option<u128>,
     /// Excess blob gas
-    #[serde(default, skip_serializing_if = "Option::is_none", with = "alloy_serde::quantity::opt")]
+    #[cfg_attr(
+        feature = "serde",
+        serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            with = "alloy_serde::quantity::opt"
+        )
+    )]
     pub excess_blob_gas: Option<u128>,
     /// EIP-4788 parent beacon block root
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "serde", serde(default, skip_serializing_if = "Option::is_none"))]
     pub parent_beacon_block_root: Option<B256>,
     /// EIP-7685 requests root.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "serde", serde(default, skip_serializing_if = "Option::is_none"))]
     pub requests_root: Option<B256>,
 }
 
@@ -188,7 +214,7 @@ impl TryFrom<Header> for alloy_consensus::Header {
             withdrawals_root,
             logs_bloom,
             difficulty,
-            number: number.ok_or(ConversionError::MissingBlockNumber)?,
+            number,
             gas_limit,
             gas_used,
             timestamp,
@@ -204,433 +230,162 @@ impl TryFrom<Header> for alloy_consensus::Header {
     }
 }
 
-/// Block Transactions depending on the boolean attribute of `eth_getBlockBy*`,
-/// or if used by `eth_getUncle*`
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(untagged)]
-pub enum BlockTransactions<T = Transaction> {
-    /// Full transactions
-    Full(Vec<T>),
-    /// Only hashes
-    Hashes(Vec<B256>),
-    /// Special case for uncle response.
-    Uncle,
-}
-
-impl<T> Default for BlockTransactions<T> {
-    fn default() -> Self {
-        Self::Hashes(Vec::default())
-    }
-}
-
-impl<T> BlockTransactions<T> {
-    /// Check if the enum variant is used for hashes.
-    #[inline]
-    pub const fn is_hashes(&self) -> bool {
-        matches!(self, Self::Hashes(_))
+impl HeaderResponse for Header {
+    fn hash(&self) -> BlockHash {
+        self.hash
     }
 
-    /// Fallibly cast to a slice of hashes.
-    pub fn as_hashes(&self) -> Option<&[B256]> {
-        match self {
-            Self::Hashes(hashes) => Some(hashes),
-            _ => None,
-        }
+    fn number(&self) -> u64 {
+        self.number
     }
 
-    /// Returns true if the enum variant is used for full transactions.
-    #[inline]
-    pub const fn is_full(&self) -> bool {
-        matches!(self, Self::Full(_))
+    fn timestamp(&self) -> u64 {
+        self.timestamp
     }
 
-    /// Fallibly cast to a slice of transactions.
-    ///
-    /// Returns `None` if the enum variant is not `Full`.
-    pub fn as_transactions(&self) -> Option<&[T]> {
-        match self {
-            Self::Full(txs) => Some(txs),
-            _ => None,
-        }
+    fn extra_data(&self) -> &Bytes {
+        &self.extra_data
     }
 
-    /// Returns true if the enum variant is used for an uncle response.
-    #[inline]
-    pub const fn is_uncle(&self) -> bool {
-        matches!(self, Self::Uncle)
+    fn base_fee_per_gas(&self) -> Option<u128> {
+        self.base_fee_per_gas
     }
 
-    /// Returns an iterator over the transactions (if any). This will be empty
-    /// if the block is an uncle or if the transaction list contains only
-    /// hashes.
-    #[doc(alias = "transactions")]
-    pub fn txns(&self) -> impl Iterator<Item = &T> {
-        self.as_transactions().map(|txs| txs.iter()).unwrap_or_else(|| [].iter())
+    fn next_block_blob_fee(&self) -> Option<u128> {
+        self.next_block_blob_fee()
     }
 
-    /// Returns an iterator over the transactions (if any). This will be empty if the block is not
-    /// full.
-    pub fn into_transactions(self) -> std::vec::IntoIter<T> {
-        match self {
-            Self::Full(txs) => txs.into_iter(),
-            _ => std::vec::IntoIter::default(),
-        }
+    fn coinbase(&self) -> Address {
+        self.miner
     }
 
-    /// Returns an instance of BlockTransactions with the Uncle special case.
-    #[inline]
-    pub const fn uncle() -> Self {
-        Self::Uncle
+    fn gas_limit(&self) -> u128 {
+        self.gas_limit
     }
 
-    /// Returns the number of transactions.
-    #[inline]
-    pub fn len(&self) -> usize {
-        match self {
-            Self::Hashes(h) => h.len(),
-            Self::Full(f) => f.len(),
-            Self::Uncle => 0,
-        }
+    fn mix_hash(&self) -> Option<B256> {
+        self.mix_hash
     }
 
-    /// Whether the block has no transactions.
-    #[inline]
-    pub fn is_empty(&self) -> bool {
-        self.len() == 0
-    }
-}
-
-impl BlockTransactions<Transaction> {
-    /// Converts `self` into `Hashes`.
-    #[inline]
-    pub fn convert_to_hashes(&mut self) {
-        if !self.is_hashes() {
-            *self = Self::Hashes(self.hashes().copied().collect());
-        }
-    }
-
-    /// Converts `self` into `Hashes`.
-    #[inline]
-    pub fn into_hashes(mut self) -> Self {
-        self.convert_to_hashes();
-        self
-    }
-
-    /// Returns an iterator over the transaction hashes.
-    #[deprecated = "use `hashes` instead"]
-    #[inline]
-    pub fn iter(&self) -> BlockTransactionHashes<'_, Transaction> {
-        self.hashes()
-    }
-
-    /// Returns an iterator over references to the transaction hashes.
-    #[inline]
-    pub fn hashes(&self) -> BlockTransactionHashes<'_, Transaction> {
-        BlockTransactionHashes::new(self)
-    }
-
-    /// Returns an iterator over mutable references to the transaction hashes.
-    #[inline]
-    pub fn hashes_mut(&mut self) -> BlockTransactionHashesMut<'_, Transaction> {
-        BlockTransactionHashesMut::new(self)
-    }
-}
-
-impl From<Vec<B256>> for BlockTransactions {
-    fn from(hashes: Vec<B256>) -> Self {
-        Self::Hashes(hashes)
-    }
-}
-
-impl<T> From<Vec<T>> for BlockTransactions<T> {
-    fn from(transactions: Vec<T>) -> Self {
-        Self::Full(transactions)
-    }
-}
-
-/// An iterator over the transaction hashes of a block.
-///
-/// See [`BlockTransactions::hashes`].
-#[derive(Clone, Debug)]
-pub struct BlockTransactionHashes<'a, T>(BlockTransactionHashesInner<'a, T>);
-
-#[derive(Clone, Debug)]
-enum BlockTransactionHashesInner<'a, T = Transaction> {
-    Hashes(std::slice::Iter<'a, B256>),
-    Full(std::slice::Iter<'a, T>),
-    Uncle,
-}
-
-impl<'a, T> BlockTransactionHashes<'a, T> {
-    #[inline]
-    fn new(txs: &'a BlockTransactions<T>) -> Self {
-        Self(match txs {
-            BlockTransactions::Hashes(txs) => BlockTransactionHashesInner::Hashes(txs.iter()),
-            BlockTransactions::Full(txs) => BlockTransactionHashesInner::Full(txs.iter()),
-            BlockTransactions::Uncle => BlockTransactionHashesInner::Uncle,
-        })
-    }
-}
-
-impl<'a> Iterator for BlockTransactionHashes<'a, Transaction> {
-    type Item = &'a B256;
-
-    #[inline]
-    fn next(&mut self) -> Option<Self::Item> {
-        match &mut self.0 {
-            BlockTransactionHashesInner::Hashes(txs) => txs.next(),
-            BlockTransactionHashesInner::Full(txs) => txs.next().map(|tx| &tx.hash),
-            BlockTransactionHashesInner::Uncle => None,
-        }
-    }
-
-    #[inline]
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        match &self.0 {
-            BlockTransactionHashesInner::Full(txs) => txs.size_hint(),
-            BlockTransactionHashesInner::Hashes(txs) => txs.size_hint(),
-            BlockTransactionHashesInner::Uncle => (0, Some(0)),
-        }
-    }
-}
-
-impl ExactSizeIterator for BlockTransactionHashes<'_, Transaction> {
-    #[inline]
-    fn len(&self) -> usize {
-        match &self.0 {
-            BlockTransactionHashesInner::Full(txs) => txs.len(),
-            BlockTransactionHashesInner::Hashes(txs) => txs.len(),
-            BlockTransactionHashesInner::Uncle => 0,
-        }
-    }
-}
-
-impl DoubleEndedIterator for BlockTransactionHashes<'_, Transaction> {
-    #[inline]
-    fn next_back(&mut self) -> Option<Self::Item> {
-        match &mut self.0 {
-            BlockTransactionHashesInner::Full(txs) => txs.next_back().map(|tx| &tx.hash),
-            BlockTransactionHashesInner::Hashes(txs) => txs.next_back(),
-            BlockTransactionHashesInner::Uncle => None,
-        }
-    }
-}
-
-impl<'a> std::iter::FusedIterator for BlockTransactionHashes<'a, Transaction> {}
-
-/// An Iterator over the transaction hashes of a block.
-///
-/// See [`BlockTransactions::hashes_mut`].
-#[derive(Debug)]
-pub struct BlockTransactionHashesMut<'a, T = Transaction>(BlockTransactionHashesInnerMut<'a, T>);
-
-#[derive(Debug)]
-enum BlockTransactionHashesInnerMut<'a, T = Transaction> {
-    Hashes(std::slice::IterMut<'a, B256>),
-    Full(std::slice::IterMut<'a, T>),
-    Uncle,
-}
-
-impl<'a, T> BlockTransactionHashesMut<'a, T> {
-    #[inline]
-    fn new(txs: &'a mut BlockTransactions<T>) -> Self {
-        Self(match txs {
-            BlockTransactions::Hashes(txs) => {
-                BlockTransactionHashesInnerMut::Hashes(txs.iter_mut())
-            }
-            BlockTransactions::Full(txs) => BlockTransactionHashesInnerMut::Full(txs.iter_mut()),
-            BlockTransactions::Uncle => BlockTransactionHashesInnerMut::Uncle,
-        })
-    }
-}
-
-impl<'a> Iterator for BlockTransactionHashesMut<'a, Transaction> {
-    type Item = &'a mut B256;
-
-    #[inline]
-    fn next(&mut self) -> Option<Self::Item> {
-        match &mut self.0 {
-            BlockTransactionHashesInnerMut::Full(txs) => txs.next().map(|tx| &mut tx.hash),
-            BlockTransactionHashesInnerMut::Hashes(txs) => txs.next(),
-            BlockTransactionHashesInnerMut::Uncle => None,
-        }
-    }
-
-    #[inline]
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        match &self.0 {
-            BlockTransactionHashesInnerMut::Full(txs) => txs.size_hint(),
-            BlockTransactionHashesInnerMut::Hashes(txs) => txs.size_hint(),
-            BlockTransactionHashesInnerMut::Uncle => (0, Some(0)),
-        }
-    }
-}
-
-impl ExactSizeIterator for BlockTransactionHashesMut<'_, Transaction> {
-    #[inline]
-    fn len(&self) -> usize {
-        match &self.0 {
-            BlockTransactionHashesInnerMut::Full(txs) => txs.len(),
-            BlockTransactionHashesInnerMut::Hashes(txs) => txs.len(),
-            BlockTransactionHashesInnerMut::Uncle => 0,
-        }
-    }
-}
-
-impl DoubleEndedIterator for BlockTransactionHashesMut<'_, Transaction> {
-    #[inline]
-    fn next_back(&mut self) -> Option<Self::Item> {
-        match &mut self.0 {
-            BlockTransactionHashesInnerMut::Full(txs) => txs.next_back().map(|tx| &mut tx.hash),
-            BlockTransactionHashesInnerMut::Hashes(txs) => txs.next_back(),
-            BlockTransactionHashesInnerMut::Uncle => None,
-        }
-    }
-}
-
-impl<'a> std::iter::FusedIterator for BlockTransactionHashesMut<'a, Transaction> {}
-
-/// Determines how the `transactions` field of [Block] should be filled.
-///
-/// This essentially represents the `full:bool` argument in RPC calls that determine whether the
-/// response should include full transaction objects or just the hashes.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
-pub enum BlockTransactionsKind {
-    /// Only include hashes: [BlockTransactions::Hashes]
-    #[default]
-    Hashes,
-    /// Include full transaction objects: [BlockTransactions::Full]
-    Full,
-}
-
-impl From<bool> for BlockTransactionsKind {
-    fn from(is_full: bool) -> Self {
-        if is_full {
-            Self::Full
-        } else {
-            Self::Hashes
-        }
-    }
-}
-
-impl From<BlockTransactionsKind> for bool {
-    fn from(kind: BlockTransactionsKind) -> Self {
-        match kind {
-            BlockTransactionsKind::Full => true,
-            BlockTransactionsKind::Hashes => false,
-        }
+    fn difficulty(&self) -> U256 {
+        self.difficulty
     }
 }
 
 /// Error that can occur when converting other types to blocks
-#[derive(Clone, Copy, Debug, thiserror::Error)]
+#[derive(Clone, Copy, Debug, derive_more::Display)]
 pub enum BlockError {
     /// A transaction failed sender recovery
-    #[error("transaction failed sender recovery")]
+    #[display("transaction failed sender recovery")]
     InvalidSignature,
     /// A raw block failed to decode
-    #[error("failed to decode raw block {0}")]
+    #[display("failed to decode raw block {_0}")]
     RlpDecodeRawBlock(alloy_rlp::Error),
 }
 
-/// A Block representation that allows to include additional fields
-pub type RichBlock = Rich<Block>;
+#[cfg(feature = "std")]
+impl std::error::Error for BlockError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::RlpDecodeRawBlock(err) => Some(err),
+            _ => None,
+        }
+    }
+}
 
-impl From<Block> for RichBlock {
+#[cfg(feature = "serde")]
+impl From<Block> for alloy_serde::WithOtherFields<Block> {
     fn from(inner: Block) -> Self {
-        Self { inner, extra_info: Default::default() }
+        Self { inner, other: Default::default() }
     }
 }
 
-/// Header representation with additional info.
-pub type RichHeader = Rich<Header>;
-
-impl From<Header> for RichHeader {
+#[cfg(feature = "serde")]
+impl From<Header> for alloy_serde::WithOtherFields<Header> {
     fn from(inner: Header) -> Self {
-        Self { inner, extra_info: Default::default() }
-    }
-}
-
-/// Value representation with additional info
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize)]
-pub struct Rich<T> {
-    /// Standard value.
-    #[serde(flatten)]
-    pub inner: T,
-    /// Additional fields that should be serialized into the `Block` object
-    #[serde(flatten)]
-    pub extra_info: BTreeMap<String, serde_json::Value>,
-}
-
-impl<T> Deref for Rich<T> {
-    type Target = T;
-    fn deref(&self) -> &Self::Target {
-        &self.inner
-    }
-}
-
-impl<T: Serialize> Serialize for Rich<T> {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        if self.extra_info.is_empty() {
-            return self.inner.serialize(serializer);
-        }
-
-        let inner = serde_json::to_value(&self.inner);
-        let extras = serde_json::to_value(&self.extra_info);
-
-        if let (Ok(serde_json::Value::Object(mut value)), Ok(serde_json::Value::Object(extras))) =
-            (inner, extras)
-        {
-            value.extend(extras);
-            value.serialize(serializer)
-        } else {
-            Err(S::Error::custom("Unserializable structures: expected objects"))
-        }
+        Self { inner, other: Default::default() }
     }
 }
 
 /// BlockOverrides is a set of header fields to override.
-#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(default, rename_all = "camelCase", deny_unknown_fields)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(default, rename_all = "camelCase", deny_unknown_fields))]
 pub struct BlockOverrides {
     /// Overrides the block number.
     ///
     /// For `eth_callMany` this will be the block number of the first simulated block. Each
     /// following block increments its block number by 1
     // Note: geth uses `number`, erigon uses `blockNumber`
-    #[serde(default, skip_serializing_if = "Option::is_none", alias = "blockNumber")]
+    #[cfg_attr(
+        feature = "serde",
+        serde(default, skip_serializing_if = "Option::is_none", alias = "blockNumber")
+    )]
     pub number: Option<U256>,
     /// Overrides the difficulty of the block.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "serde", serde(default, skip_serializing_if = "Option::is_none"))]
     pub difficulty: Option<U256>,
     /// Overrides the timestamp of the block.
     // Note: geth uses `time`, erigon uses `timestamp`
-    #[serde(
-        default,
-        skip_serializing_if = "Option::is_none",
-        alias = "timestamp",
-        with = "alloy_serde::quantity::opt"
+    #[cfg_attr(
+        feature = "serde",
+        serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            alias = "timestamp",
+            with = "alloy_serde::quantity::opt"
+        )
     )]
     pub time: Option<u64>,
     /// Overrides the gas limit of the block.
-    #[serde(default, skip_serializing_if = "Option::is_none", with = "alloy_serde::quantity::opt")]
+    #[cfg_attr(
+        feature = "serde",
+        serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            with = "alloy_serde::quantity::opt"
+        )
+    )]
     pub gas_limit: Option<u64>,
     /// Overrides the coinbase address of the block.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(
+        feature = "serde",
+        serde(default, skip_serializing_if = "Option::is_none", alias = "feeRecipient")
+    )]
     pub coinbase: Option<Address>,
     /// Overrides the prevrandao of the block.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(
+        feature = "serde",
+        serde(default, skip_serializing_if = "Option::is_none", alias = "prevRandao")
+    )]
     pub random: Option<B256>,
     /// Overrides the basefee of the block.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(
+        feature = "serde",
+        serde(default, skip_serializing_if = "Option::is_none", alias = "baseFeePerGas")
+    )]
     pub base_fee: Option<U256>,
     /// A dictionary that maps blockNumber to a user-defined hash. It could be queried from the
     /// solidity opcode BLOCKHASH.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[cfg_attr(feature = "serde", serde(default, skip_serializing_if = "Option::is_none"))]
     pub block_hash: Option<BTreeMap<u64, B256>>,
+}
+
+impl<T, H> BlockResponse for Block<T, H> {
+    type Transaction = T;
+    type Header = H;
+
+    fn header(&self) -> &Self::Header {
+        &self.header
+    }
+
+    fn transactions(&self) -> &BlockTransactions<T> {
+        &self.transactions
+    }
+
+    fn transactions_mut(&mut self) -> &mut BlockTransactions<Self::Transaction> {
+        &mut self.transactions
+    }
 }
 
 #[cfg(test)]
@@ -649,16 +404,7 @@ mod tests {
     }
 
     #[test]
-    fn test_full_conversion() {
-        let full = true;
-        assert_eq!(BlockTransactionsKind::Full, full.into());
-
-        let full = false;
-        assert_eq!(BlockTransactionsKind::Hashes, full.into());
-    }
-
-    #[test]
-    #[cfg(feature = "jsonrpsee-types")]
+    #[cfg(all(feature = "jsonrpsee-types", feature = "serde"))]
     fn serde_json_header() {
         use jsonrpsee_types::SubscriptionResponse;
         let resp = r#"{"jsonrpc":"2.0","method":"eth_subscribe","params":{"subscription":"0x7eef37ff35d471f8825b1c8f67a5d3c0","result":{"hash":"0x7a7ada12e140961a32395059597764416499f4178daf1917193fad7bd2cc6386","parentHash":"0xdedbd831f496e705e7f2ec3c8dcb79051040a360bf1455dbd7eb8ea6ad03b751","sha3Uncles":"0x1dcc4de8dec75d7aab85b567b6ccd41ad312451b948a7413f0a142fd40d49347","miner":"0x0000000000000000000000000000000000000000","stateRoot":"0x0000000000000000000000000000000000000000000000000000000000000000","transactionsRoot":"0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421","receiptsRoot":"0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421","number":"0x8","gasUsed":"0x0","gasLimit":"0x1c9c380","extraData":"0x","logsBloom":"0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000","timestamp":"0x642aa48f","difficulty":"0x0","mixHash":"0x0000000000000000000000000000000000000000000000000000000000000000","nonce":"0x0000000000000000"}}}"#;
@@ -669,10 +415,11 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "serde")]
     fn serde_block() {
         let block = Block {
             header: Header {
-                hash: Some(B256::with_last_byte(1)),
+                hash: B256::with_last_byte(1),
                 parent_hash: B256::with_last_byte(2),
                 uncles_hash: B256::with_last_byte(3),
                 miner: Address::with_last_byte(4),
@@ -680,7 +427,7 @@ mod tests {
                 transactions_root: B256::with_last_byte(6),
                 receipts_root: B256::with_last_byte(7),
                 withdrawals_root: Some(B256::with_last_byte(8)),
-                number: Some(9),
+                number: 9,
                 gas_used: 10,
                 gas_limit: 11,
                 extra_data: vec![1, 2, 3].into(),
@@ -700,7 +447,6 @@ mod tests {
             transactions: vec![B256::with_last_byte(18)].into(),
             size: Some(U256::from(19)),
             withdrawals: Some(vec![]),
-            other: Default::default(),
         };
         let serialized = serde_json::to_string(&block).unwrap();
         assert_eq!(
@@ -712,10 +458,11 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "serde")]
     fn serde_uncle_block() {
         let block = Block {
             header: Header {
-                hash: Some(B256::with_last_byte(1)),
+                hash: B256::with_last_byte(1),
                 parent_hash: B256::with_last_byte(2),
                 uncles_hash: B256::with_last_byte(3),
                 miner: Address::with_last_byte(4),
@@ -723,7 +470,7 @@ mod tests {
                 transactions_root: B256::with_last_byte(6),
                 receipts_root: B256::with_last_byte(7),
                 withdrawals_root: Some(B256::with_last_byte(8)),
-                number: Some(9),
+                number: 9,
                 gas_used: 10,
                 gas_limit: 11,
                 extra_data: vec![1, 2, 3].into(),
@@ -743,7 +490,6 @@ mod tests {
             transactions: BlockTransactions::Uncle,
             size: Some(U256::from(19)),
             withdrawals: None,
-            other: Default::default(),
         };
         let serialized = serde_json::to_string(&block).unwrap();
         assert_eq!(
@@ -755,10 +501,11 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "serde")]
     fn serde_block_with_withdrawals_set_as_none() {
         let block = Block {
             header: Header {
-                hash: Some(B256::with_last_byte(1)),
+                hash: B256::with_last_byte(1),
                 parent_hash: B256::with_last_byte(2),
                 uncles_hash: B256::with_last_byte(3),
                 miner: Address::with_last_byte(4),
@@ -766,7 +513,7 @@ mod tests {
                 transactions_root: B256::with_last_byte(6),
                 receipts_root: B256::with_last_byte(7),
                 withdrawals_root: None,
-                number: Some(9),
+                number: 9,
                 gas_used: 10,
                 gas_limit: 11,
                 extra_data: vec![1, 2, 3].into(),
@@ -786,7 +533,6 @@ mod tests {
             transactions: vec![B256::with_last_byte(18)].into(),
             size: Some(U256::from(19)),
             withdrawals: None,
-            other: Default::default(),
         };
         let serialized = serde_json::to_string(&block).unwrap();
         assert_eq!(
@@ -798,12 +544,14 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "serde")]
     fn block_overrides() {
         let s = r#"{"blockNumber": "0xe39dd0"}"#;
         let _overrides = serde_json::from_str::<BlockOverrides>(s).unwrap();
     }
 
     #[test]
+    #[cfg(feature = "serde")]
     fn serde_rich_block() {
         let s = r#"{
     "hash": "0xb25d0e54ca0104e3ebfb5a1dcdf9528140854d609886a300946fd6750dcb19f4",
@@ -830,13 +578,15 @@ mod tests {
     "size": "0xaeb6"
 }"#;
 
-        let block = serde_json::from_str::<RichBlock>(s).unwrap();
+        let block = serde_json::from_str::<alloy_serde::WithOtherFields<Block>>(s).unwrap();
         let serialized = serde_json::to_string(&block).unwrap();
-        let block2 = serde_json::from_str::<RichBlock>(&serialized).unwrap();
+        let block2 =
+            serde_json::from_str::<alloy_serde::WithOtherFields<Block>>(&serialized).unwrap();
         assert_eq!(block, block2);
     }
 
     #[test]
+    #[cfg(feature = "serde")]
     fn serde_missing_uncles_block() {
         let s = r#"{
             "baseFeePerGas":"0x886b221ad",
@@ -878,6 +628,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "serde")]
     fn serde_block_containing_uncles() {
         let s = r#"{
             "baseFeePerGas":"0x886b221ad",
@@ -921,6 +672,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "serde")]
     fn serde_empty_block() {
         let s = r#"{
     "hash": "0xb25d0e54ca0104e3ebfb5a1dcdf9528140854d609886a300946fd6750dcb19f4",
@@ -951,6 +703,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "serde")]
     fn recompute_block_hash() {
         let s = r#"{
     "hash": "0xb25d0e54ca0104e3ebfb5a1dcdf9528140854d609886a300946fd6750dcb19f4",
@@ -977,7 +730,7 @@ mod tests {
         let block = serde_json::from_str::<Block>(s).unwrap();
         let header: alloy_consensus::Header = block.clone().header.try_into().unwrap();
         let recomputed_hash = keccak256(alloy_rlp::encode(&header));
-        assert_eq!(recomputed_hash, block.header.hash.unwrap());
+        assert_eq!(recomputed_hash, block.header.hash);
 
         let s2 = r#"{
             "baseFeePerGas":"0x886b221ad",
@@ -1014,6 +767,6 @@ mod tests {
         let block2 = serde_json::from_str::<Block>(s2).unwrap();
         let header: alloy_consensus::Header = block2.clone().header.try_into().unwrap();
         let recomputed_hash = keccak256(alloy_rlp::encode(&header));
-        assert_eq!(recomputed_hash, block2.header.hash.unwrap());
+        assert_eq!(recomputed_hash, block2.header.hash);
     }
 }

@@ -1,15 +1,16 @@
-use crate::{SignableTransaction, Signed, Transaction, TxType};
-use alloy_eips::eip2930::AccessList;
-use alloy_primitives::{keccak256, Bytes, ChainId, Signature, TxKind, U256};
+use crate::{EncodableSignature, SignableTransaction, Signed, Transaction, TxType};
+use alloc::vec::Vec;
+use alloy_eips::{
+    eip2930::AccessList,
+    eip7702::{constants::EIP7702_TX_TYPE_ID, SignedAuthorization},
+};
+use alloy_primitives::{keccak256, Address, Bytes, ChainId, Signature, TxKind, B256, U256};
 use alloy_rlp::{BufMut, Decodable, Encodable, Header};
 use core::mem;
 
-#[cfg(not(feature = "std"))]
-use alloc::vec::Vec;
-use alloy_eips::eip7702::{constants::EIP7702_TX_TYPE_ID, SignedAuthorization};
-
 /// A transaction with a priority fee ([EIP-7702](https://eips.ethereum.org/EIPS/eip-7702)).
 #[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
+#[cfg_attr(any(test, feature = "arbitrary"), derive(arbitrary::Arbitrary))]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "serde", serde(rename_all = "camelCase"))]
 #[doc(alias = "Eip7702Transaction", alias = "TransactionEip7702", alias = "Eip7702Tx")]
@@ -49,10 +50,8 @@ pub struct TxEip7702 {
     /// This is also known as `GasTipCap`
     #[cfg_attr(feature = "serde", serde(with = "alloy_serde::quantity"))]
     pub max_priority_fee_per_gas: u128,
-    /// The 160-bit address of the message call’s recipient or, for a contract creation
-    /// transaction, ∅, used here to denote the only member of B0 ; formally Tt.
-    #[cfg_attr(feature = "serde", serde(default, skip_serializing_if = "TxKind::is_create"))]
-    pub to: TxKind,
+    /// The 160-bit address of the message call’s recipient.
+    pub to: Address,
     /// A scalar value equal to the number of Wei to
     /// be transferred to the message call’s recipient or,
     /// in the case of contract creation, as an endowment
@@ -110,7 +109,7 @@ impl TxEip7702 {
     /// - `data` (`input`)
     /// - `access_list`
     /// - `authorization_list`
-    pub(crate) fn decode_fields(buf: &mut &[u8]) -> alloy_rlp::Result<Self> {
+    pub fn decode_fields(buf: &mut &[u8]) -> alloy_rlp::Result<Self> {
         Ok(Self {
             chain_id: Decodable::decode(buf)?,
             nonce: Decodable::decode(buf)?,
@@ -161,7 +160,10 @@ impl TxEip7702 {
     ///
     /// If `with_header` is `true`, the payload length will include the RLP header length.
     /// If `with_header` is `false`, the payload length will not include the RLP header length.
-    pub fn encoded_len_with_signature(&self, signature: &Signature, with_header: bool) -> usize {
+    pub fn encoded_len_with_signature<S>(&self, signature: &S, with_header: bool) -> usize
+    where
+        S: EncodableSignature,
+    {
         // this counts the tx fields and signature fields
         let payload_length = self.fields_len() + signature.rlp_vrs_len();
 
@@ -184,12 +186,10 @@ impl TxEip7702 {
     /// Inner encoding function that is used for both rlp [`Encodable`] trait and for calculating
     /// hash that for eip2718 does not require a rlp header.
     #[doc(hidden)]
-    pub fn encode_with_signature(
-        &self,
-        signature: &Signature,
-        out: &mut dyn BufMut,
-        with_header: bool,
-    ) {
+    pub fn encode_with_signature<S>(&self, signature: &S, out: &mut dyn BufMut, with_header: bool)
+    where
+        S: EncodableSignature,
+    {
         let payload_length = self.fields_len() + signature.rlp_vrs_len();
         if with_header {
             Header {
@@ -236,7 +236,10 @@ impl TxEip7702 {
     /// tx type byte or string header.
     ///
     /// This __does__ encode a list header and include a signature.
-    pub(crate) fn encode_with_signature_fields(&self, signature: &Signature, out: &mut dyn BufMut) {
+    pub fn encode_with_signature_fields<S>(&self, signature: &S, out: &mut dyn BufMut)
+    where
+        S: EncodableSignature,
+    {
         let payload_length = self.fields_len() + signature.rlp_vrs_len();
         let header = Header { list: true, payload_length };
         header.encode(out);
@@ -246,9 +249,8 @@ impl TxEip7702 {
 
     /// Get transaction type
     #[doc(alias = "transaction_type")]
-    #[allow(unused)]
-    pub(crate) fn tx_type(&self) -> TxType {
-        unimplemented!("not yet added to tx type enum")
+    pub const fn tx_type(&self) -> TxType {
+        TxType::Eip7702
     }
 
     /// Calculates a heuristic for the in-memory size of the [TxEip7702] transaction.
@@ -259,7 +261,7 @@ impl TxEip7702 {
         mem::size_of::<u64>() + // gas_limit
         mem::size_of::<u128>() + // max_fee_per_gas
         mem::size_of::<u128>() + // max_priority_fee_per_gas
-        self.to.size() + // to
+        mem::size_of::<Address>() + // to
         mem::size_of::<U256>() + // value
         self.access_list.size() + // access_list
         self.input.len() + // input
@@ -284,8 +286,24 @@ impl Transaction for TxEip7702 {
         None
     }
 
+    fn max_fee_per_gas(&self) -> u128 {
+        self.max_fee_per_gas
+    }
+
+    fn max_priority_fee_per_gas(&self) -> Option<u128> {
+        Some(self.max_priority_fee_per_gas)
+    }
+
+    fn priority_fee_or_price(&self) -> u128 {
+        self.max_priority_fee_per_gas
+    }
+
+    fn max_fee_per_blob_gas(&self) -> Option<u128> {
+        None
+    }
+
     fn to(&self) -> TxKind {
-        self.to
+        self.to.into()
     }
 
     fn value(&self) -> U256 {
@@ -294,6 +312,22 @@ impl Transaction for TxEip7702 {
 
     fn input(&self) -> &[u8] {
         &self.input
+    }
+
+    fn ty(&self) -> u8 {
+        TxType::Eip7702 as u8
+    }
+
+    fn access_list(&self) -> Option<&AccessList> {
+        Some(&self.access_list)
+    }
+
+    fn blob_versioned_hashes(&self) -> Option<&[B256]> {
+        None
+    }
+
+    fn authorization_list(&self) -> Option<&[SignedAuthorization]> {
+        Some(&self.authorization_list)
     }
 }
 
@@ -355,7 +389,7 @@ mod tests {
     use super::TxEip7702;
     use crate::SignableTransaction;
     use alloy_eips::eip2930::AccessList;
-    use alloy_primitives::{address, b256, hex, Address, Signature, TxKind, U256};
+    use alloy_primitives::{address, b256, hex, Address, Signature, U256};
 
     #[test]
     fn encode_decode_eip7702() {
@@ -363,7 +397,7 @@ mod tests {
             chain_id: 1,
             nonce: 0x42,
             gas_limit: 44386,
-            to: address!("6069a6c32cf691f5982febae4faf8a6f3ab2f0f6").into(),
+            to: address!("6069a6c32cf691f5982febae4faf8a6f3ab2f0f6"),
             value: U256::from(0_u64),
             input:  hex!("a22cb4650000000000000000000000005eee75727d804a2b13038928d36f8b188945a57a0000000000000000000000000000000000000000000000000000000000000000").into(),
             max_fee_per_gas: 0x4a817c800,
@@ -394,7 +428,7 @@ mod tests {
             max_fee_per_gas: 0x4a817c800,
             max_priority_fee_per_gas: 0x3b9aca00,
             gas_limit: 2,
-            to: TxKind::Create,
+            to: Address::default(),
             value: U256::ZERO,
             input: vec![1, 2].into(),
             access_list: Default::default(),
@@ -420,7 +454,7 @@ mod tests {
             max_fee_per_gas: 0x4a817c800,
             max_priority_fee_per_gas: 0x3b9aca00,
             gas_limit: 2,
-            to: Address::default().into(),
+            to: Address::default(),
             value: U256::ZERO,
             input: vec![1, 2].into(),
             access_list: Default::default(),

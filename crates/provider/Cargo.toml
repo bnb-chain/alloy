@@ -23,15 +23,18 @@ alloy-eips.workspace = true
 alloy-consensus.workspace = true
 alloy-json-rpc.workspace = true
 alloy-network.workspace = true
+alloy-network-primitives.workspace = true
 alloy-node-bindings = { workspace = true, optional = true }
 alloy-signer-local = { workspace = true, optional = true }
 alloy-rpc-client.workspace = true
 alloy-rpc-types-admin = { workspace = true, optional = true }
 alloy-rpc-types-anvil = { workspace = true, optional = true }
-alloy-rpc-types-eth.workspace = true
+alloy-rpc-types-eth = { workspace = true, features = ["serde"] }
 alloy-rpc-types-trace = { workspace = true, optional = true }
 alloy-rpc-types-txpool = { workspace = true, optional = true }
-alloy-rpc-types-engine = { workspace = true, optional = true }
+alloy-rpc-types-engine = { workspace = true, optional = true, features = [
+    "serde",
+] }
 alloy-rpc-types = { workspace = true, optional = true }
 alloy-transport-http = { workspace = true, optional = true }
 alloy-transport-ipc = { workspace = true, optional = true }
@@ -44,7 +47,7 @@ alloy-chains.workspace = true
 async-stream = "0.3"
 async-trait.workspace = true
 auto_impl.workspace = true
-dashmap = "5.5"
+dashmap = "6.0"
 futures-utils-wasm.workspace = true
 futures.workspace = true
 lru = "0.12"
@@ -52,6 +55,7 @@ pin-project.workspace = true
 reqwest = { workspace = true, optional = true }
 serde_json.workspace = true
 serde.workspace = true
+thiserror.workspace = true
 tokio = { workspace = true, features = ["sync", "macros"] }
 tracing.workspace = true
 url = { workspace = true, optional = true }
@@ -71,6 +75,13 @@ reqwest.workspace = true
 tokio = { workspace = true, features = ["macros"] }
 tracing-subscriber = { workspace = true, features = ["fmt"] }
 tempfile.workspace = true
+tower.workspace = true
+tower-http = { workspace = true, features = [
+    "set-header",
+    "sensitive-headers",
+] }
+http-body-util.workspace = true
+http.workspace = true
 
 [features]
 default = ["reqwest", "reqwest-default-tls"]
@@ -96,6 +107,7 @@ anvil-node = [
     "dep:alloy-signer-local",
 ]
 debug-api = ["dep:alloy-rpc-types-trace"]
+erc4337-api = []
 engine-api = ["dep:alloy-rpc-types-engine"]
 net-api = []
 trace-api = ["dep:alloy-rpc-types-trace"]

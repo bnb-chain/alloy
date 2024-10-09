@@ -19,23 +19,29 @@ rustdoc-args = ["--cfg", "docsrs"]
 workspace = true
 
 [dependencies]
+alloy-eips.workspace = true
+alloy-consensus.workspace = true
+alloy-network-primitives.workspace = true
 alloy-rlp = { workspace = true, features = ["arrayvec", "derive"] }
-alloy-primitives = { workspace = true, features = ["rlp", "serde", "std"] }
-alloy-serde.workspace = true
-
-alloy-consensus = { workspace = true, features = ["std", "serde"] }
-alloy-eips = { workspace = true, features = ["std", "serde"] }
+alloy-primitives = { workspace = true, features = ["rlp"] }
 
 itertools.workspace = true
-serde = { workspace = true, features = ["derive"] }
-serde_json.workspace = true
-thiserror.workspace = true
+derive_more = { workspace = true, features = ["display"] }
+
+# serde
+alloy-serde = { workspace = true, optional = true }
+serde = { workspace = true, features = ["derive"], optional = true }
+serde_json = { workspace = true, optional = true }
+
+# `no_std` compatibility
+cfg-if.workspace = true
+hashbrown = { workspace = true, features = ["serde"] }
 
 # arbitrary
 arbitrary = { version = "1.3", features = ["derive"], optional = true }
 
 # jsonrpsee
-jsonrpsee-types = { version = "0.23", optional = true }
+jsonrpsee-types = { version = "0.24", optional = true }
 alloy-sol-types.workspace = true
 
 [dev-dependencies]
@@ -51,9 +57,14 @@ alloy-eips = { workspace = true, features = ["arbitrary", "k256"] }
 arbitrary = { workspace = true, features = ["derive"] }
 rand.workspace = true
 similar-asserts.workspace = true
+assert_matches.workspace = true
 
 [features]
+default = ["std", "serde"]
+std = ["alloy-primitives/std", "alloy-consensus/std", "alloy-eips/std"]
+serde = ["dep:serde", "dep:serde_json", "dep:alloy-serde", "alloy-primitives/serde", "alloy-consensus/serde", "alloy-eips/serde"]
 arbitrary = [
+    "std",
     "dep:arbitrary",
     "alloy-primitives/arbitrary",
     "alloy-serde/arbitrary",
@@ -61,6 +72,5 @@ arbitrary = [
     "alloy-eips/k256",
 ]
 jsonrpsee-types = ["dep:jsonrpsee-types"]
-ssz = ["alloy-primitives/ssz", "alloy-eips/ssz"]
 k256 = ["alloy-consensus/k256", "alloy-eips/k256"]
 sidecar = ["alloy-eips/kzg-sidecar"]
