@@ -5,7 +5,7 @@ use alloy_eips::{
     eip2718::{Decodable2718, Eip2718Error, Eip2718Result, Encodable2718},
     eip2930::AccessList,
 };
-use alloy_primitives::{TxKind, B256};
+use alloy_primitives::{Bytes, TxKind, B256};
 use alloy_rlp::{Decodable, Encodable, Header};
 
 use crate::transaction::eip4844::{TxEip4844, TxEip4844Variant, TxEip4844WithSidecar};
@@ -53,7 +53,7 @@ impl fmt::Display for TxType {
 }
 
 #[cfg(any(test, feature = "arbitrary"))]
-impl<'a> arbitrary::Arbitrary<'a> for TxType {
+impl arbitrary::Arbitrary<'_> for TxType {
     fn arbitrary(u: &mut arbitrary::Unstructured<'_>) -> arbitrary::Result<Self> {
         Ok(u.int_in_range(0u8..=3)?.try_into().unwrap())
     }
@@ -87,18 +87,18 @@ impl TryFrom<u8> for TxType {
 /// [EIP-2718]: https://eips.ethereum.org/EIPS/eip-2718
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(tag = "type"))]
+#[cfg_attr(
+    feature = "serde",
+    serde(into = "serde_from::TaggedTxEnvelope", from = "serde_from::MaybeTaggedTxEnvelope")
+)]
 #[doc(alias = "TransactionEnvelope")]
 #[non_exhaustive]
 pub enum TxEnvelope {
     /// An untagged [`TxLegacy`].
-    #[cfg_attr(feature = "serde", serde(rename = "0x0", alias = "0x00"))]
     Legacy(Signed<TxLegacy>),
     /// A [`TxEip2930`] tagged with type 1.
-    #[cfg_attr(feature = "serde", serde(rename = "0x1", alias = "0x01"))]
     Eip2930(Signed<TxEip2930>),
     /// A [`TxEip1559`] tagged with type 2.
-    #[cfg_attr(feature = "serde", serde(rename = "0x2", alias = "0x02"))]
     Eip1559(Signed<TxEip1559>),
     /// A TxEip4844 tagged with type 3.
     /// An EIP-4844 transaction has two network representations:
@@ -107,10 +107,8 @@ pub enum TxEnvelope {
     ///
     /// 2 - The transaction with a sidecar, which is the form used to
     /// send transactions to the network.
-    #[cfg_attr(feature = "serde", serde(rename = "0x3", alias = "0x03"))]
     Eip4844(Signed<TxEip4844Variant>),
     /// A [`TxEip7702`] tagged with type 4.
-    #[cfg_attr(feature = "serde", serde(rename = "0x4", alias = "0x04"))]
     Eip7702(Signed<TxEip7702>),
 }
 
@@ -290,7 +288,9 @@ impl TxEnvelope {
                     let inner_payload_length = tx.tx().fields_len() + t.signature().rlp_vrs_len();
                     let inner_header = Header { list: true, payload_length: inner_payload_length };
 
-                    inner_header.length() + inner_payload_length + tx.sidecar.fields_len()
+                    inner_header.length()
+                        + inner_payload_length
+                        + tx.sidecar.rlp_encoded_fields_length()
                 }
             },
             Self::Eip7702(t) => t.tx().fields_len() + t.signature().rlp_vrs_len(),
@@ -305,12 +305,7 @@ impl Encodable for TxEnvelope {
     }
 
     fn length(&self) -> usize {
-        let mut payload_length = self.rlp_payload_length();
-        if !self.is_legacy() {
-            payload_length += Header { list: false, payload_length }.length();
-        }
-
-        payload_length
+        self.network_len()
     }
 }
 
@@ -382,6 +377,16 @@ impl Transaction for TxEnvelope {
         }
     }
 
+    fn nonce(&self) -> u64 {
+        match self {
+            Self::Legacy(tx) => tx.tx().nonce(),
+            Self::Eip2930(tx) => tx.tx().nonce(),
+            Self::Eip1559(tx) => tx.tx().nonce(),
+            Self::Eip4844(tx) => tx.tx().nonce(),
+            Self::Eip7702(tx) => tx.tx().nonce(),
+        }
+    }
+
     fn gas_limit(&self) -> u64 {
         match self {
             Self::Legacy(tx) => tx.tx().gas_limit(),
@@ -422,16 +427,6 @@ impl Transaction for TxEnvelope {
         }
     }
 
-    fn priority_fee_or_price(&self) -> u128 {
-        match self {
-            Self::Legacy(tx) => tx.tx().priority_fee_or_price(),
-            Self::Eip2930(tx) => tx.tx().priority_fee_or_price(),
-            Self::Eip1559(tx) => tx.tx().priority_fee_or_price(),
-            Self::Eip4844(tx) => tx.tx().priority_fee_or_price(),
-            Self::Eip7702(tx) => tx.tx().priority_fee_or_price(),
-        }
-    }
-
     fn max_fee_per_blob_gas(&self) -> Option<u128> {
         match self {
             Self::Legacy(tx) => tx.tx().max_fee_per_blob_gas(),
@@ -442,33 +437,23 @@ impl Transaction for TxEnvelope {
         }
     }
 
-    fn input(&self) -> &[u8] {
+    fn priority_fee_or_price(&self) -> u128 {
         match self {
-            Self::Legacy(tx) => tx.tx().input(),
-            Self::Eip2930(tx) => tx.tx().input(),
-            Self::Eip1559(tx) => tx.tx().input(),
-            Self::Eip4844(tx) => tx.tx().input(),
-            Self::Eip7702(tx) => tx.tx().input(),
+            Self::Legacy(tx) => tx.tx().priority_fee_or_price(),
+            Self::Eip2930(tx) => tx.tx().priority_fee_or_price(),
+            Self::Eip1559(tx) => tx.tx().priority_fee_or_price(),
+            Self::Eip4844(tx) => tx.tx().priority_fee_or_price(),
+            Self::Eip7702(tx) => tx.tx().priority_fee_or_price(),
         }
     }
 
-    fn nonce(&self) -> u64 {
+    fn kind(&self) -> TxKind {
         match self {
-            Self::Legacy(tx) => tx.tx().nonce(),
-            Self::Eip2930(tx) => tx.tx().nonce(),
-            Self::Eip1559(tx) => tx.tx().nonce(),
-            Self::Eip4844(tx) => tx.tx().nonce(),
-            Self::Eip7702(tx) => tx.tx().nonce(),
-        }
-    }
-
-    fn to(&self) -> TxKind {
-        match self {
-            Self::Legacy(tx) => tx.tx().to(),
-            Self::Eip2930(tx) => tx.tx().to(),
-            Self::Eip1559(tx) => tx.tx().to(),
-            Self::Eip4844(tx) => tx.tx().to(),
-            Self::Eip7702(tx) => tx.tx().to(),
+            Self::Legacy(tx) => tx.tx().kind(),
+            Self::Eip2930(tx) => tx.tx().kind(),
+            Self::Eip1559(tx) => tx.tx().kind(),
+            Self::Eip4844(tx) => tx.tx().kind(),
+            Self::Eip7702(tx) => tx.tx().kind(),
         }
     }
 
@@ -479,6 +464,16 @@ impl Transaction for TxEnvelope {
             Self::Eip1559(tx) => tx.tx().value(),
             Self::Eip4844(tx) => tx.tx().value(),
             Self::Eip7702(tx) => tx.tx().value(),
+        }
+    }
+
+    fn input(&self) -> &Bytes {
+        match self {
+            Self::Legacy(tx) => tx.tx().input(),
+            Self::Eip2930(tx) => tx.tx().input(),
+            Self::Eip1559(tx) => tx.tx().input(),
+            Self::Eip4844(tx) => tx.tx().input(),
+            Self::Eip7702(tx) => tx.tx().input(),
         }
     }
 
@@ -519,6 +514,75 @@ impl Transaction for TxEnvelope {
             Self::Eip1559(tx) => tx.tx().authorization_list(),
             Self::Eip4844(tx) => tx.tx().authorization_list(),
             Self::Eip7702(tx) => tx.tx().authorization_list(),
+        }
+    }
+}
+
+#[cfg(feature = "serde")]
+mod serde_from {
+    //! NB: Why do we need this?
+    //!
+    //! Because the tag may be missing, we need an abstraction over tagged (with
+    //! type) and untagged (always legacy). This is [`MaybeTaggedTxEnvelope`].
+    //!
+    //! The tagged variant is [`TaggedTxEnvelope`], which always has a type tag.
+    //!
+    //! We serialize via [`TaggedTxEnvelope`] and deserialize via
+    //! [`MaybeTaggedTxEnvelope`].
+    use crate::{Signed, TxEip1559, TxEip2930, TxEip4844Variant, TxEip7702, TxEnvelope, TxLegacy};
+
+    #[derive(Debug, serde::Deserialize)]
+    #[serde(untagged)]
+    pub(crate) enum MaybeTaggedTxEnvelope {
+        Tagged(TaggedTxEnvelope),
+        Untagged(Signed<TxLegacy>),
+    }
+
+    #[derive(Debug, serde::Serialize, serde::Deserialize)]
+    #[serde(tag = "type")]
+    pub(crate) enum TaggedTxEnvelope {
+        #[serde(rename = "0x0", alias = "0x00")]
+        Legacy(Signed<TxLegacy>),
+        #[serde(rename = "0x1", alias = "0x01")]
+        Eip2930(Signed<TxEip2930>),
+        #[serde(rename = "0x2", alias = "0x02")]
+        Eip1559(Signed<TxEip1559>),
+        #[serde(rename = "0x3", alias = "0x03")]
+        Eip4844(Signed<TxEip4844Variant>),
+        #[serde(rename = "0x4", alias = "0x04")]
+        Eip7702(Signed<TxEip7702>),
+    }
+
+    impl From<MaybeTaggedTxEnvelope> for TxEnvelope {
+        fn from(value: MaybeTaggedTxEnvelope) -> Self {
+            match value {
+                MaybeTaggedTxEnvelope::Tagged(tagged) => tagged.into(),
+                MaybeTaggedTxEnvelope::Untagged(tx) => Self::Legacy(tx),
+            }
+        }
+    }
+
+    impl From<TaggedTxEnvelope> for TxEnvelope {
+        fn from(value: TaggedTxEnvelope) -> Self {
+            match value {
+                TaggedTxEnvelope::Legacy(signed) => Self::Legacy(signed),
+                TaggedTxEnvelope::Eip2930(signed) => Self::Eip2930(signed),
+                TaggedTxEnvelope::Eip1559(signed) => Self::Eip1559(signed),
+                TaggedTxEnvelope::Eip4844(signed) => Self::Eip4844(signed),
+                TaggedTxEnvelope::Eip7702(signed) => Self::Eip7702(signed),
+            }
+        }
+    }
+
+    impl From<TxEnvelope> for TaggedTxEnvelope {
+        fn from(value: TxEnvelope) -> Self {
+            match value {
+                TxEnvelope::Legacy(signed) => Self::Legacy(signed),
+                TxEnvelope::Eip2930(signed) => Self::Eip2930(signed),
+                TxEnvelope::Eip1559(signed) => Self::Eip1559(signed),
+                TxEnvelope::Eip4844(signed) => Self::Eip4844(signed),
+                TxEnvelope::Eip7702(signed) => Self::Eip7702(signed),
+            }
         }
     }
 }
@@ -604,7 +668,7 @@ mod tests {
         };
 
         assert_eq!(
-            tx.tx().to(),
+            tx.tx().kind(),
             TxKind::Call(address!("11E9CA82A3a762b4B5bd264d4173a242e7a77064"))
         );
 
@@ -816,7 +880,7 @@ mod tests {
                 storage_keys: vec![B256::left_padding_from(&[9])],
             }]),
             authorization_list: vec![(Authorization {
-                chain_id: U256::from(1),
+                chain_id: 1,
                 address: Address::left_padding_from(&[10]),
                 nonce: 1u64,
             })
@@ -987,7 +1051,7 @@ mod tests {
                 storage_keys: vec![B256::random()],
             }]),
             authorization_list: vec![(Authorization {
-                chain_id: U256::from(1),
+                chain_id: 1,
                 address: Address::left_padding_from(&[1]),
                 nonce: 1u64,
             })

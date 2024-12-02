@@ -3,10 +3,9 @@
 //! See also <https://flashbots.github.io/relay-specs/>
 
 use crate::{BlsPublicKey, BlsSignature};
-use alloy_primitives::{Address, B256, U256};
+use alloy_primitives::{Address, Bytes, B256, U256};
 use alloy_rpc_types_engine::{
     BlobsBundleV1, ExecutionPayload, ExecutionPayloadV1, ExecutionPayloadV2, ExecutionPayloadV3,
-    ExecutionPayloadV4,
 };
 use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, DisplayFromStr};
@@ -148,10 +147,12 @@ pub struct SignedBidSubmissionV4 {
     /// The [`BidTrace`] message associated with the submission.
     pub message: BidTrace,
     /// The execution payload for the submission.
-    #[serde(with = "crate::payload::beacon_payload_v4")]
-    pub execution_payload: ExecutionPayloadV4,
+    #[serde(with = "crate::payload::beacon_payload_v3")]
+    pub execution_payload: ExecutionPayloadV3,
     /// The Electra block bundle for this bid.
     pub blobs_bundle: BlobsBundleV1,
+    /// The Pectra execution requests for this bid.
+    pub execution_requests: Vec<Bytes>,
     /// The signature associated with the submission.
     pub signature: BlsSignature,
 }
@@ -427,6 +428,7 @@ pub mod error {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use similar_asserts::assert_eq;
 
     #[test]
     fn serde_validator() {
@@ -435,7 +437,7 @@ mod tests {
         let validators: Vec<Validator> = serde_json::from_str(s).unwrap();
         let json: serde_json::Value = serde_json::from_str(s).unwrap();
 
-        similar_asserts::assert_eq!(json, serde_json::to_value(validators).unwrap());
+        assert_eq!(json, serde_json::to_value(validators).unwrap());
     }
 
     #[test]

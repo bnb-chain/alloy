@@ -102,13 +102,13 @@ impl RethInstance {
     }
 
     /// Returns the path to this instances' data directory.
-    pub const fn data_dir(&self) -> &Option<PathBuf> {
-        &self.data_dir
+    pub const fn data_dir(&self) -> Option<&PathBuf> {
+        self.data_dir.as_ref()
     }
 
     /// Returns the genesis configuration used to configure this instance
-    pub const fn genesis(&self) -> &Option<Genesis> {
-        &self.genesis
+    pub const fn genesis(&self) -> Option<&Genesis> {
+        self.genesis.as_ref()
     }
 
     /// Takes the stdout contained in the child process.
@@ -423,12 +423,12 @@ impl Reth {
             }
         }
 
-        if !self.discovery_enabled {
-            cmd.arg("--disable-discovery");
-            cmd.arg("--no-persist-peers");
-        } else {
+        if self.discovery_enabled {
             // Verbosity is required to read the P2P port from the logs.
             cmd.arg("--verbosity").arg("-vvv");
+        } else {
+            cmd.arg("--disable-discovery");
+            cmd.arg("--no-persist-peers");
         }
 
         if let Some(chain_or_path) = self.chain_or_path {
@@ -517,7 +517,7 @@ impl Reth {
             instance: self.instance,
             http_port,
             ws_port,
-            p2p_port: if p2p_port != 0 { Some(p2p_port) } else { None },
+            p2p_port: (p2p_port != 0).then_some(p2p_port),
             ipc: self.ipc_path,
             data_dir: self.data_dir,
             auth_port: Some(auth_port),

@@ -2,9 +2,7 @@
 //!
 //! [EIP-2718]: https://eips.ethereum.org/EIPS/eip-2718
 
-#[cfg(not(feature = "std"))]
-use crate::alloc::{vec, vec::Vec};
-
+use crate::alloc::vec::Vec;
 use alloy_primitives::{keccak256, Sealed, B256};
 use alloy_rlp::{Buf, BufMut, Header, EMPTY_STRING_CODE};
 use core::{
@@ -136,9 +134,8 @@ pub trait Decodable2718: Sized {
         // If it's a list, we need to fallback to the legacy decoding.
         if h.list {
             return Self::fallback_decode(buf);
-        } else {
-            *buf = h_decode;
         }
+        *buf = h_decode;
 
         let remaining_len = buf.len();
 
@@ -209,7 +206,7 @@ pub trait Encodable2718: Sized + Send + Sync + 'static {
     /// This is a convenience method for encoding into a vec, and returning the
     /// vec.
     fn encoded_2718(&self) -> Vec<u8> {
-        let mut out = vec![];
+        let mut out = Vec::with_capacity(self.encode_2718_len());
         self.encode_2718(&mut out);
         out
     }
@@ -227,6 +224,17 @@ pub trait Encodable2718: Sized + Send + Sync + 'static {
     fn seal(self) -> Sealed<Self> {
         let hash = self.trie_hash();
         Sealed::new_unchecked(self, hash)
+    }
+
+    /// The length of the 2718 encoded envelope in network format. This is the
+    /// length of the header + the length of the type flag and inner encoding.
+    fn network_len(&self) -> usize {
+        let mut payload_length = self.encode_2718_len();
+        if !self.is_legacy() {
+            payload_length += Header { list: false, payload_length }.length();
+        }
+
+        payload_length
     }
 
     /// Encode in the network format. The network format is used ONLY by the

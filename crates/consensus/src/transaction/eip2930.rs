@@ -32,7 +32,7 @@ pub struct TxEip2930 {
     /// this transaction. This is paid up-front, before any
     /// computation is done and may not be increased
     /// later; formally Tg.
-    #[cfg_attr(feature = "serde", serde(with = "alloy_serde::quantity"))]
+    #[cfg_attr(feature = "serde", serde(with = "alloy_serde::quantity", rename = "gas"))]
     pub gas_limit: u64,
     /// The 160-bit address of the message call’s recipient or, for a contract creation
     /// transaction, ∅, used here to denote the only member of B0 ; formally Tt.
@@ -252,15 +252,15 @@ impl Transaction for TxEip2930 {
         None
     }
 
-    fn priority_fee_or_price(&self) -> u128 {
-        self.gas_price
-    }
-
     fn max_fee_per_blob_gas(&self) -> Option<u128> {
         None
     }
 
-    fn to(&self) -> TxKind {
+    fn priority_fee_or_price(&self) -> u128 {
+        self.gas_price
+    }
+
+    fn kind(&self) -> TxKind {
         self.to
     }
 
@@ -268,7 +268,7 @@ impl Transaction for TxEip2930 {
         self.value
     }
 
-    fn input(&self) -> &[u8] {
+    fn input(&self) -> &Bytes {
         &self.input
     }
 
@@ -474,7 +474,7 @@ pub(super) mod serde_bincode_compat {
         }
     }
 
-    impl<'a> SerializeAs<super::TxEip2930> for TxEip2930<'a> {
+    impl SerializeAs<super::TxEip2930> for TxEip2930<'_> {
         fn serialize_as<S>(source: &super::TxEip2930, serializer: S) -> Result<S::Ok, S::Error>
         where
             S: Serializer,

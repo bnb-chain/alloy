@@ -121,19 +121,19 @@ impl GethInstance {
     }
 
     /// Returns the path to this instances' data directory
-    pub const fn data_dir(&self) -> &Option<PathBuf> {
-        &self.data_dir
+    pub const fn data_dir(&self) -> Option<&PathBuf> {
+        self.data_dir.as_ref()
     }
 
     /// Returns the genesis configuration used to configure this instance
-    pub const fn genesis(&self) -> &Option<Genesis> {
-        &self.genesis
+    pub const fn genesis(&self) -> Option<&Genesis> {
+        self.genesis.as_ref()
     }
 
     /// Returns the private key used to configure clique on this instance
     #[deprecated = "clique support was removed in geth >=1.14"]
-    pub const fn clique_private_key(&self) -> &Option<SigningKey> {
-        &self.clique_private_key
+    pub const fn clique_private_key(&self) -> Option<&SigningKey> {
+        self.clique_private_key.as_ref()
     }
 
     /// Takes the stderr contained in the child process.
@@ -453,9 +453,12 @@ impl Geth {
                 let clique_config = CliqueConfig { period: Some(0), epoch: Some(8) };
                 genesis.config.clique = Some(clique_config);
 
-                let clique_addr = clique_addr.ok_or(NodeError::CliqueAddressError(
-                    "could not calculates the address of the Clique consensus address.".to_string(),
-                ))?;
+                let clique_addr = clique_addr.ok_or_else(|| {
+                    NodeError::CliqueAddressError(
+                        "could not calculates the address of the Clique consensus address."
+                            .to_string(),
+                    )
+                })?;
 
                 // set the extraData field
                 let extra_data_bytes =
@@ -468,9 +471,11 @@ impl Geth {
                 cmd.arg("--miner.etherbase").arg(format!("{clique_addr:?}"));
             }
 
-            let clique_addr = self.clique_address().ok_or(NodeError::CliqueAddressError(
-                "could not calculates the address of the Clique consensus address.".to_string(),
-            ))?;
+            let clique_addr = self.clique_address().ok_or_else(|| {
+                NodeError::CliqueAddressError(
+                    "could not calculates the address of the Clique consensus address.".to_string(),
+                )
+            })?;
 
             self.genesis = Some(Genesis::clique_genesis(
                 self.chain_id.ok_or(NodeError::ChainIdNotSet)?,

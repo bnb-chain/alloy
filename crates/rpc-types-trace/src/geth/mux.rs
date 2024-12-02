@@ -17,6 +17,7 @@ pub struct MuxFrame(pub HashMap<GethDebugBuiltInTracerType, GethTrace>);
 mod tests {
     use super::*;
     use crate::geth::*;
+    use similar_asserts::assert_eq;
 
     const FOUR_BYTE_FRAME: &str = r#"{
         "0x27dc297e-128": 1,
@@ -59,7 +60,7 @@ mod tests {
             Some(GethDebugTracerType::BuiltInTracer(GethDebugBuiltInTracerType::MuxTracer));
 
         let call_config = CallConfig { only_top_call: Some(true), with_log: Some(true) };
-        let prestate_config = PreStateConfig { diff_mode: Some(true) };
+        let prestate_config = PreStateConfig { diff_mode: Some(true), ..Default::default() };
 
         opts.tracing_options.tracer_config = MuxConfig(HashMap::from_iter([
             (GethDebugBuiltInTracerType::FourByteTracer, None),

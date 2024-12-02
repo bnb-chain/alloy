@@ -9,7 +9,10 @@ use core::{
     hash::Hash,
     ops::{RangeFrom, RangeInclusive, RangeToInclusive},
 };
-use itertools::{EitherOrBoth::*, Itertools};
+use itertools::{
+    EitherOrBoth::{Both, Left, Right},
+    Itertools,
+};
 
 /// Helper type to represent a bloom filter used for matching logs.
 #[derive(Debug, Default)]
@@ -37,7 +40,7 @@ pub struct FilterSet<T: Eq + Hash>(HashSet<T>);
 
 impl<T: Eq + Hash> From<T> for FilterSet<T> {
     fn from(src: T) -> Self {
-        Self(FromIterator::from_iter(core::iter::once(src)))
+        Self(core::iter::once(src).collect())
     }
 }
 
@@ -51,7 +54,7 @@ impl<T: Eq + Hash> Hash for FilterSet<T> {
 
 impl<T: Eq + Hash> From<Vec<T>> for FilterSet<T> {
     fn from(src: Vec<T>) -> Self {
-        Self(HashSet::from_iter(src.into_iter().map(Into::into)))
+        Self(src.into_iter().map(Into::into).collect())
     }
 }
 
@@ -616,32 +619,17 @@ impl<'de> serde::Deserialize<'de> for Filter {
                             if from_block.is_some() {
                                 return Err(serde::de::Error::duplicate_field("fromBlock"));
                             }
-                            if block_hash.is_some() {
-                                return Err(serde::de::Error::custom(
-                                    "fromBlock not allowed with blockHash",
-                                ));
-                            }
                             from_block = Some(map.next_value()?)
                         }
                         "toBlock" => {
                             if to_block.is_some() {
                                 return Err(serde::de::Error::duplicate_field("toBlock"));
                             }
-                            if block_hash.is_some() {
-                                return Err(serde::de::Error::custom(
-                                    "toBlock not allowed with blockHash",
-                                ));
-                            }
                             to_block = Some(map.next_value()?)
                         }
                         "blockHash" => {
                             if block_hash.is_some() {
                                 return Err(serde::de::Error::duplicate_field("blockHash"));
-                            }
-                            if from_block.is_some() || to_block.is_some() {
-                                return Err(serde::de::Error::custom(
-                                    "fromBlock,toBlock not allowed with blockHash",
-                                ));
                             }
                             block_hash = Some(map.next_value()?)
                         }
@@ -667,9 +655,20 @@ impl<'de> serde::Deserialize<'de> for Filter {
                     }
                 }
 
-                let from_block = from_block.unwrap_or_default();
-                let to_block = to_block.unwrap_or_default();
-                let block_hash = block_hash.unwrap_or_default();
+                // conflict check between block_hash and from_block/to_block
+                let (block_hash, from_block, to_block) = if let Some(Some(hash)) = block_hash {
+                    if from_block.is_some_and(|inner| inner.is_some())
+                        || to_block.is_some_and(|inner| inner.is_some())
+                    {
+                        return Err(serde::de::Error::custom(
+                            "cannot specify both blockHash and fromBlock/toBlock, choose one or the other",
+                        ));
+                    }
+                    (Some(hash), None, None)
+                } else {
+                    (None, from_block.unwrap_or_default(), to_block.unwrap_or_default())
+                };
+
                 let address = address.flatten().map(|a| a.into()).unwrap_or_default();
                 let topics_vec = topics.flatten().unwrap_or_default();
 
@@ -837,7 +836,7 @@ impl FilteredParams {
         // for each filter, iterate through the list of filter blooms. for each set of filter
         // (each BloomFilter), the given `bloom` must match at least one of them, unless the list is
         // empty (no filters).
-        for filter in topic_filters.iter() {
+        for filter in topic_filters {
             if !filter.matches(bloom) {
                 return false;
             }
@@ -1169,6 +1168,7 @@ impl<'a> serde::Deserialize<'a> for PendingTransactionFilterKind {
 mod tests {
     use super::*;
     use serde_json::json;
+    use similar_asserts::assert_eq;
 
     #[cfg(feature = "serde")]
     fn serialize<T: serde::Serialize>(t: &T) -> serde_json::Value {
@@ -1180,7 +1180,7 @@ mod tests {
     fn test_empty_filter_topics_list() {
         let s = r#"{"fromBlock": "0xfc359e", "toBlock": "0xfc359e", "topics": [["0x8c5be1e5ebec7d5bd14f71427d1e84f3dd0314c0f7b2291e5b200ac8c7c3b925"], [], ["0x0000000000000000000000000c17e776cd218252adfca8d4e761d3fe757e9778"]]}"#;
         let filter = serde_json::from_str::<Filter>(s).unwrap();
-        similar_asserts::assert_eq!(
+        assert_eq!(
             filter.topics,
             [
                 "0x8c5be1e5ebec7d5bd14f71427d1e84f3dd0314c0f7b2291e5b200ac8c7c3b925"
@@ -1228,7 +1228,7 @@ mod tests {
         let s =
             r#"{"blockHash":"0x58dc57ab582b282c143424bd01e8d923cddfdcda9455bad02a29522f6274a948"}"#;
         let filter = serde_json::from_str::<Filter>(s).unwrap();
-        similar_asserts::assert_eq!(
+        assert_eq!(
             filter.block_option,
             FilterBlockOption::AtBlockHash(
                 "0x58dc57ab582b282c143424bd01e8d923cddfdcda9455bad02a29522f6274a948"
@@ -1243,7 +1243,7 @@ mod tests {
     fn test_filter_topics_middle_wildcard() {
         let s = r#"{"fromBlock": "0xfc359e", "toBlock": "0xfc359e", "topics": [["0x8c5be1e5ebec7d5bd14f71427d1e84f3dd0314c0f7b2291e5b200ac8c7c3b925"], [], [null, "0x0000000000000000000000000c17e776cd218252adfca8d4e761d3fe757e9778"]]}"#;
         let filter = serde_json::from_str::<Filter>(s).unwrap();
-        similar_asserts::assert_eq!(
+        assert_eq!(
             filter.topics,
             [
                 "0x8c5be1e5ebec7d5bd14f71427d1e84f3dd0314c0f7b2291e5b200ac8c7c3b925"
@@ -1586,6 +1586,90 @@ mod tests {
                 address: Default::default(),
                 topics: Default::default(),
             }
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "serde")]
+    fn test_filter_with_null_range_block() {
+        let json = json!(
+                    {
+          "fromBlock": null,
+          "toBlock": null,
+          "blockHash": "0xe903ebc49101d30b28d7256be411f81418bf6809ddbaefc40201b1b97f2e64ee",
+          "address": null,
+          "topics": null
+        }
+            );
+
+        let filter: Filter = serde_json::from_value(json).unwrap();
+        assert_eq!(
+            filter.block_option,
+            FilterBlockOption::AtBlockHash(
+                "0xe903ebc49101d30b28d7256be411f81418bf6809ddbaefc40201b1b97f2e64ee"
+                    .parse()
+                    .unwrap()
+            )
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "serde")]
+    fn test_filter_with_null_block_hash() {
+        let json = json!(
+                    {
+          "fromBlock": "0x1",
+          "toBlock": "0x2",
+          "blockHash": null,
+          "address": null,
+          "topics": null
+        }
+            );
+
+        let filter: Filter = serde_json::from_value(json).unwrap();
+        assert_eq!(
+            filter.block_option,
+            FilterBlockOption::Range { from_block: Some(1u64.into()), to_block: Some(2u64.into()) }
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "serde")]
+    fn test_filter_with_null_block_hash_and_null_from_block() {
+        let json = json!(
+                    {
+          "fromBlock": null,
+          "toBlock": "0x2",
+          "blockHash": null,
+          "address": null,
+          "topics": null
+        }
+            );
+
+        let filter: Filter = serde_json::from_value(json).unwrap();
+        assert_eq!(
+            filter.block_option,
+            FilterBlockOption::Range { from_block: None, to_block: Some(2u64.into()) }
+        );
+    }
+
+    #[test]
+    #[cfg(feature = "serde")]
+    fn test_filter_with_null_block_hash_and_null_to_block() {
+        let json = json!(
+                    {
+          "fromBlock": "0x1",
+          "toBlock": null,
+          "blockHash": null,
+          "address": null,
+          "topics": null
+        }
+            );
+
+        let filter: Filter = serde_json::from_value(json).unwrap();
+        assert_eq!(
+            filter.block_option,
+            FilterBlockOption::Range { from_block: Some(1u64.into()), to_block: None }
         );
     }
 
