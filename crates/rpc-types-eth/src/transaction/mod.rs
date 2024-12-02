@@ -75,7 +75,7 @@ pub struct Transaction {
     pub gas_price: Option<u128>,
     /// Gas amount
     #[cfg_attr(feature = "serde", serde(with = "alloy_serde::quantity"))]
-    pub gas: u128,
+    pub gas: u64,
     /// Max BaseFeePerGas the user is willing to pay.
     #[cfg_attr(
         feature = "serde",
@@ -338,31 +338,100 @@ impl TryFrom<Transaction> for TxEnvelope {
     }
 }
 
-impl TransactionResponse for Transaction {
-    fn tx_hash(&self) -> B256 {
-        self.hash
+impl alloy_consensus::Transaction for Transaction {
+    fn chain_id(&self) -> Option<ChainId> {
+        self.chain_id
     }
 
-    fn from(&self) -> Address {
-        self.from
+    fn nonce(&self) -> u64 {
+        self.nonce
     }
 
-    fn to(&self) -> Option<Address> {
-        self.to
+    fn gas_limit(&self) -> u64 {
+        self.gas
+    }
+
+    fn gas_price(&self) -> Option<u128> {
+        self.gas_price
+    }
+
+    fn max_fee_per_gas(&self) -> u128 {
+        self.max_fee_per_gas.unwrap_or(self.gas_price.unwrap_or_default())
+    }
+
+    fn max_priority_fee_per_gas(&self) -> Option<u128> {
+        self.max_priority_fee_per_gas
+    }
+
+    fn max_fee_per_blob_gas(&self) -> Option<u128> {
+        self.max_fee_per_blob_gas
+    }
+
+    fn priority_fee_or_price(&self) -> u128 {
+        debug_assert!(
+            self.max_fee_per_gas.is_some() || self.gas_price.is_some(),
+            "mutually exclusive fields"
+        );
+        self.max_fee_per_gas.unwrap_or(self.gas_price.unwrap_or_default())
+    }
+
+    fn to(&self) -> TxKind {
+        self.to.into()
     }
 
     fn value(&self) -> U256 {
         self.value
     }
 
-    fn gas(&self) -> u128 {
-        self.gas
-    }
-
-    fn input(&self) -> &Bytes {
+    fn input(&self) -> &[u8] {
         &self.input
     }
+
+    fn ty(&self) -> u8 {
+        self.transaction_type.unwrap_or_default()
+    }
+
+    fn access_list(&self) -> Option<&AccessList> {
+        self.access_list.as_ref()
+    }
+
+    fn blob_versioned_hashes(&self) -> Option<&[B256]> {
+        self.blob_versioned_hashes.as_deref()
+    }
+
+    fn authorization_list(&self) -> Option<&[SignedAuthorization]> {
+        self.authorization_list.as_deref()
+    }
 }
+
+impl TransactionResponse for Transaction {
+    type Signature = Signature;
+
+    fn tx_hash(&self) -> B256 {
+        self.hash
+    }
+
+    fn block_hash(&self) -> Option<BlockHash> {
+        self.block_hash
+    }
+
+    fn block_number(&self) -> Option<u64> {
+        self.block_number
+    }
+
+    fn transaction_index(&self) -> Option<u64> {
+        self.transaction_index
+    }
+
+    fn from(&self) -> Address {
+        self.from
+    }
+
+    fn signature(&self) -> Option<Signature> {
+        self.signature
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

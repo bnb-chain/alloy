@@ -2,7 +2,7 @@ use core::mem;
 
 use alloc::vec::Vec;
 use alloy_eips::{eip2930::AccessList, eip7702::SignedAuthorization};
-use alloy_primitives::{keccak256, Bytes, ChainId, Signature, TxKind, B256, U256};
+use alloy_primitives::{keccak256, Bytes, ChainId, Parity, Signature, TxKind, B256, U256};
 use alloy_rlp::{length_of_length, BufMut, Decodable, Encodable, Header, Result};
 
 use crate::{EncodableSignature, SignableTransaction, Signed, Transaction, TxType};
@@ -42,7 +42,7 @@ pub struct TxLegacy {
     /// computation is done and may not be increased
     /// later; formally Tg.
     #[cfg_attr(feature = "serde", serde(with = "alloy_serde::quantity"))]
-    pub gas_limit: u128,
+    pub gas_limit: u64,
     /// The 160-bit address of the message call’s recipient or, for a contract creation
     /// transaction, ∅, used here to denote the only member of B0 ; formally Tt.
     #[cfg_attr(feature = "serde", serde(default, skip_serializing_if = "TxKind::is_create"))]
@@ -171,6 +171,10 @@ impl TxLegacy {
         let mut tx = Self::decode_fields(buf)?;
         let signature = Signature::decode_rlp_vrs(buf)?;
 
+        if !matches!(signature.v(), Parity::Eip155(_) | Parity::NonEip155(_)) {
+            return Err(alloy_rlp::Error::Custom("invalid parity for legacy transaction"));
+        }
+
         // extract chain id from signature
         let v = signature.v();
         tx.chain_id = v.chain_id();
@@ -210,7 +214,7 @@ impl Transaction for TxLegacy {
         self.nonce
     }
 
-    fn gas_limit(&self) -> u128 {
+    fn gas_limit(&self) -> u64 {
         self.gas_limit
     }
 
@@ -383,5 +387,119 @@ mod tests {
 
         assert_eq!(tx.tx().chain_id, Some(1), "Expected same chain id");
         assert_eq!(expected, recovered, "Expected same signer");
+    }
+}
+
+/// Bincode-compatible [`TxLegacy`] serde implementation.
+#[cfg(all(feature = "serde", feature = "serde-bincode-compat"))]
+pub(super) mod serde_bincode_compat {
+    use alloc::borrow::Cow;
+    use alloy_primitives::{Bytes, ChainId, TxKind, U256};
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+    use serde_with::{DeserializeAs, SerializeAs};
+
+    /// Bincode-compatible [`super::TxLegacy`] serde implementation.
+    ///
+    /// Intended to use with the [`serde_with::serde_as`] macro in the following way:
+    /// ```rust
+    /// use alloy_consensus::{serde_bincode_compat, TxLegacy};
+    /// use serde::{Deserialize, Serialize};
+    /// use serde_with::serde_as;
+    ///
+    /// #[serde_as]
+    /// #[derive(Serialize, Deserialize)]
+    /// struct Data {
+    ///     #[serde_as(as = "serde_bincode_compat::transaction::TxLegacy")]
+    ///     header: TxLegacy,
+    /// }
+    /// ```
+    #[derive(Debug, Serialize, Deserialize)]
+    pub struct TxLegacy<'a> {
+        #[serde(default, with = "alloy_serde::quantity::opt")]
+        chain_id: Option<ChainId>,
+        nonce: u64,
+        gas_price: u128,
+        gas_limit: u64,
+        #[serde(default)]
+        to: TxKind,
+        value: U256,
+        input: Cow<'a, Bytes>,
+    }
+
+    impl<'a> From<&'a super::TxLegacy> for TxLegacy<'a> {
+        fn from(value: &'a super::TxLegacy) -> Self {
+            Self {
+                chain_id: value.chain_id,
+                nonce: value.nonce,
+                gas_price: value.gas_price,
+                gas_limit: value.gas_limit,
+                to: value.to,
+                value: value.value,
+                input: Cow::Borrowed(&value.input),
+            }
+        }
+    }
+
+    impl<'a> From<TxLegacy<'a>> for super::TxLegacy {
+        fn from(value: TxLegacy<'a>) -> Self {
+            Self {
+                chain_id: value.chain_id,
+                nonce: value.nonce,
+                gas_price: value.gas_price,
+                gas_limit: value.gas_limit,
+                to: value.to,
+                value: value.value,
+                input: value.input.into_owned(),
+            }
+        }
+    }
+
+    impl<'a> SerializeAs<super::TxLegacy> for TxLegacy<'a> {
+        fn serialize_as<S>(source: &super::TxLegacy, serializer: S) -> Result<S::Ok, S::Error>
+        where
+            S: Serializer,
+        {
+            TxLegacy::from(source).serialize(serializer)
+        }
+    }
+
+    impl<'de> DeserializeAs<'de, super::TxLegacy> for TxLegacy<'de> {
+        fn deserialize_as<D>(deserializer: D) -> Result<super::TxLegacy, D::Error>
+        where
+            D: Deserializer<'de>,
+        {
+            TxLegacy::deserialize(deserializer).map(Into::into)
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use arbitrary::Arbitrary;
+        use rand::Rng;
+        use serde::{Deserialize, Serialize};
+        use serde_with::serde_as;
+
+        use super::super::{serde_bincode_compat, TxLegacy};
+
+        #[test]
+        fn test_tx_legacy_bincode_roundtrip() {
+            #[serde_as]
+            #[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
+            struct Data {
+                #[serde_as(as = "serde_bincode_compat::TxLegacy")]
+                transaction: TxLegacy,
+            }
+
+            let mut bytes = [0u8; 1024];
+            rand::thread_rng().fill(bytes.as_mut_slice());
+            let data = Data {
+                transaction: TxLegacy::arbitrary(&mut arbitrary::Unstructured::new(&bytes))
+                    .unwrap(),
+            };
+
+            let encoded = bincode::serialize(&data).unwrap();
+            let decoded: Data = bincode::deserialize(&encoded).unwrap();
+            assert_eq!(decoded, data);
+        }
     }
 }

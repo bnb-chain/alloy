@@ -754,10 +754,12 @@ mod tests {
             let serialized = serde_json::to_string(&test_case.trace).unwrap();
             let actual_json: Value = serde_json::from_str(&serialized).unwrap();
 
-            assert_eq!(
-                actual_json, test_case.expected_json,
+            similar_asserts::assert_eq!(
+                actual_json,
+                test_case.expected_json,
                 "Test case {} failed; Trace: {:?}",
-                i, test_case.trace
+                i,
+                test_case.trace
             );
         }
     }

@@ -1,8 +1,9 @@
 use crate::receipt::{Eip658Value, TxReceipt};
-use alloc::vec::Vec;
+use alloc::{vec, vec::Vec};
 use alloy_primitives::{Bloom, Log};
 use alloy_rlp::{length_of_length, BufMut, Decodable, Encodable};
 use core::borrow::Borrow;
+use derive_more::{DerefMut, From, IntoIterator};
 
 /// Receipt containing result of transaction execution.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -72,8 +73,8 @@ impl<T> TxReceipt<T> for Receipt<T>
 where
     T: Borrow<Log>,
 {
-    fn status_or_post_state(&self) -> &Eip658Value {
-        &self.status
+    fn status_or_post_state(&self) -> Eip658Value {
+        self.status
     }
 
     fn status(&self) -> bool {
@@ -100,6 +101,45 @@ impl<T> From<ReceiptWithBloom<T>> for Receipt<T> {
     }
 }
 
+/// Receipt containing result of transaction execution.
+#[derive(
+    Clone, Debug, PartialEq, Eq, Default, From, derive_more::Deref, DerefMut, IntoIterator,
+)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct Receipts<T> {
+    /// A two-dimensional vector of [`Receipt`] instances.
+    pub receipt_vec: Vec<Vec<T>>,
+}
+
+impl<T> Receipts<T> {
+    /// Returns the length of the [`Receipts`] vector.
+    pub fn len(&self) -> usize {
+        self.receipt_vec.len()
+    }
+
+    /// Returns `true` if the [`Receipts`] vector is empty.
+    pub fn is_empty(&self) -> bool {
+        self.receipt_vec.is_empty()
+    }
+
+    /// Push a new vector of receipts into the [`Receipts`] collection.
+    pub fn push(&mut self, receipts: Vec<T>) {
+        self.receipt_vec.push(receipts);
+    }
+}
+
+impl<T> From<Vec<T>> for Receipts<T> {
+    fn from(block_receipts: Vec<T>) -> Self {
+        Self { receipt_vec: vec![block_receipts] }
+    }
+}
+
+impl<T> FromIterator<Vec<T>> for Receipts<T> {
+    fn from_iter<I: IntoIterator<Item = Vec<T>>>(iter: I) -> Self {
+        Self { receipt_vec: iter.into_iter().collect() }
+    }
+}
+
 /// [`Receipt`] with calculated bloom filter.
 ///
 /// This convenience type allows us to lazily calculate the bloom filter for a
@@ -119,8 +159,8 @@ pub struct ReceiptWithBloom<T = Log> {
 }
 
 impl<T> TxReceipt<T> for ReceiptWithBloom<T> {
-    fn status_or_post_state(&self) -> &Eip658Value {
-        &self.receipt.status
+    fn status_or_post_state(&self) -> Eip658Value {
+        self.receipt.status
     }
 
     fn status(&self) -> bool {

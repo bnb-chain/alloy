@@ -352,8 +352,11 @@ mod tests {
 
         let origin: serde_json::Value = serde_json::from_str(txpool_content_json).unwrap();
         let serialized_value = serde_json::to_value(deserialized.clone()).unwrap();
-        assert_eq!(origin, serialized_value);
-        assert_eq!(deserialized, serde_json::from_str::<TxpoolContent>(&serialized).unwrap());
+        similar_asserts::assert_eq!(origin, serialized_value);
+        similar_asserts::assert_eq!(
+            deserialized,
+            serde_json::from_str::<TxpoolContent>(&serialized).unwrap()
+        );
     }
 
     #[test]
