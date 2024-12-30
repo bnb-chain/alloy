@@ -10,7 +10,7 @@ use derive_more::{Deref, DerefMut, From, IntoIterator};
 ///
 /// This is equivalent to `sha256(sha256(0) ++ sha256(1) ++ sha256(2))`
 pub const EMPTY_REQUESTS_HASH: B256 =
-    b256!("6036c41849da9c076ed79654d434017387a88fb833c2856b32e18218b3341c5f");
+    b256!("e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855");
 
 /// A list of opaque EIP-7685 requests.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Hash, Deref, DerefMut, From, IntoIterator)]
